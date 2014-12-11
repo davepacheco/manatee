@@ -9,6 +9,7 @@
 -->
 
 # Manatee
+
                        _.---.._
           _        _.-' \  \    ''-.
         .'  '-,_.-'   /  /  /       '''.
@@ -21,14 +22,31 @@ This repository is part of the Joyent SmartDataCenter project (SDC).  For
 contribution guidelines, issues, and general documentation, visit the main
 [SDC](http://github.com/joyent/sdc) project page.
 
-# Overview
+## Overview
 
-Manatee is an automated fault monitoring and leader-election system for
-strongly-consistent, highly-available writes to PostgreSQL.  It can tolerate
-network partitions up to the loss of an entire node without loss of write (nor
-read) capability.  Client configuration changes are minimal and failover is
-completely free of operator intervention.  New shard members are automatically
-replicated upon introduction.
+Manatee is a system for clustering PostgreSQL instances for better durability
+and availability than you'd get from a single instance.  In terms of CAP,
+Manatee is built to support a strongly consistent (CP) system: at any given
+time, only one PostgreSQL instance (the primary peer) serves client requests.
+If the primary fails or becomes partitioned, another peer will automatically
+take over (i.e., without operator intervention).  Synchronous replication is
+used to avoid any data loss in the event of a takeover.
+
+Postgres clients are responsible for using the [manatee client
+library](https://github.com/joyent/node-manatee) to locate the current primary
+peer.  Manatee is typically deployed with
+[Moray](https://github.com/joyent/moray), a key-value store that uses the
+Manatee client to keep up with Manatee cluster changes and hides these details
+from its clients.  Manatee does not manage IP-level failover or anything like
+that, though PostgreSQL is configured so that accidental writes to a non-primary
+will never complete successfully.
+
+To ensure data integrity, Manatee is built atop
+[ZFS](http://en.wikipedia.org/wiki/ZFS) and [PostgreSQL synchronous
+replication](http://www.postgresql.org/docs/9.2/static/warm-standby.html#SYNCHRONOUS-REPLICATION).
+
+
+## Documentation
 
 Check out the [user-guide](docs/user-guide.md) for details on server internals
 and setup.
@@ -38,25 +56,15 @@ Problems? Check out the [Troubleshooting guide](docs/trouble-shooting.md).
 Migrating from Manatee 1.0 to 2.0?  Check out the [migration
 guide](docs/migrate-1-to-2.md).
 
-# Features
+If you want to build and test Manatee yourself, check out the [developer's
+guide](docs/dev-guide.md).
 
-* Automated liveliness detection, failover, and recovery. Reads are always
-  available, even during a failover. Writes are available as soon as the
-  failover is complete.
 
-* Automated bootstrap. New peers will bootstrap and join the shard
-  without human intervention.
+## Client quick start
 
-* Data integrity. Built atop [ZFS](http://en.wikipedia.org/wiki/ZFS) and
-  [PostgreSQL synchronous
-  replication](http://www.postgresql.org/docs/9.2/static/warm-standby.html#SYNCHRONOUS-REPLICATION)
-  for safe, reliable
-  storage.
-
-# Quick Start
-
-## Client
+The client library is used to locate the current primary peer in the cluster.
 Detailed client docs are [here](https://github.com/joyent/node-manatee).
+
 ```javascript
 var manatee = require('node-manatee');
 
@@ -78,6 +86,7 @@ client.once('ready', function () {
 
 client.on('topology', function (urls) {
     console.log({urls: urls}, 'topology changed');
+    /* start using the new primary */
 });
 
 client.on('error', function (err) {
@@ -85,169 +94,70 @@ client.on('error', function (err) {
 });
 ```
 
-# Working on Manatee
 
-When working on Manatee, it's convenient to be able to run multiple instances in
-the same environment.  This won't allow you to test all possible failure modes,
-but it works for most basic functionality.
+## Features and design notes
 
-This process involves:
+These notes are for helping understand Manatee's design.  For details on
+actually operating Manatee, see the user guide.
 
-* Deploying a zone with the right version of postgres available and with the
-  ability to manage ZFS datasets.  Manatee needs to be able to run as root
-  inside this zone.
-* Installing postgres, git, gcc, and other tools required to build.
-* Creating a ZFS dataset for each Manatee peer you want to run.  (We'll assume
-  three instances in this guide.)
-* Creating a configuration file for each Manatee peer you want to run.
-* Starting each peer by hand.
+#### Automated cluster setup
+
+A cluster is automatically set up when two peers connect to the ZooKeeper
+cluster.  As new peers are added, they're automatically added to the cluster.
 
 
-## Summary
+#### Durability
 
-These steps assume you've already got ZooKeeper running somewhere.  In
-the steps below, $ZK_CONN_STR is a connection string, or a comma-separated list
-of IP:PORT pairs for the zookeeper cluster.
-
-Run all of the following as root:
-
-1. Provision a SmartOS zone using multiarch 13.3.1.  This is image
-   4aec529c-55f9-11e3-868e-a37707fcbe86.  Be sure to provision the zone with a
-   delegated ZFS dataset.
-1. Log into the zone and run the following steps as root (or with sudo or
-   as another privileged user).
-1. Install packages:
-
-        # pkgin -y in gmake scmgit gcc47 postgresql92-server-9.2.4nb1 \
-            postgresql92-adminpack postgresql92-replicationtools \
-            postgresql92-upgrade lz4-120
-
-1. Get and build a local copy of this repo:
-
-        # git clone https://github.com/joyent/manatee
-        # cd manatee
-        # git checkout MANATEE-188
-        # make
-
-1. Pick an IP address from "ifconfig -a".  We'll call this $SELF_IP.  The IP to
-   use will depend on your configuration.  The Manatee services will bind to
-   this IP, so don't pick a public IP unless that's really what you want.
-
-1. Run the setup script
-
-        # ./tools/mkdevsitters $SELF_IP $ZK_CONN_STR
-
-1. For each peer ("1", "2", "3"), open up two terminals.  In the first, start
-   the sitter:
-
-        # node sitter.js -f devconfs/sitter1/sitter.json | bunyan
-
-   In the second terminal, start the backup server:
-
-        # node backupserver.js -f devconfs/sitter1/backupserver.json | bunyan
-
-If you want to clean everything up (**note: this will destroy all data stored
-in these peers!)**, run:
-
-    # for peer in 1 2 3; do zfs destroy -R zones/$(zonename)/data/peer$peer; done
-
-**This command is very destructive!  Be sure you're okay with destroying the
-datasets, snapshots, and clones of all of the peers you created before you run
-this command.**
-
-Then run:
-
-    # rm -rf devconfs
-
-## Details
-
-This section has more details about the above procedure.
-
-### Provisioning a development zone
-
-We develop Manatee in SmartOS zones running under SDC.  You should be able to
-run on standalone SmartOS (i.e., not running under SDC), or even other systems
-with ZFS and Postgres installed (e.g., BSD).  Manatee requires access to ZFS
-datasets to create snapshots, send streams, and the like, and it also must
-run as root.  The former currently rules out the Joyent Public Cloud as a
-deployment option.
-
-We deploy Manatee using the multiarch 13.3.1 image (equivalent to image
-4aec529c-55f9-11e3-868e-a37707fcbe86).  For development, we recommend using a
-zone based on that image, deployed on a network with a ZooKeeper instance
-running.  On SDC, be sure to set `delegate_dataset=true` when provisioning.  On
-standalone SmartOS, set `delegate_dataset=true` when you invoke "vmadm create".
-
-### Installing packages
-
-You'll need git, GNU make, a compiler toolchain, lz4, and the postgres client,
-server, and tools.  On the above multiarch SmartOS zone, you can install these
-with:
-
-    # pkgin -y in gmake scmgit gcc47 postgresql92-server-9.2.4nb1 \
-        postgresql92-adminpack postgresql92-replicationtools \
-        postgresql92-upgrade lz4-120
-
-### Creating ZFS datasets and configurations
-
-There's a tool inside the repo called "mkdevsitters" which configures the local
-system to run three Manatee peers.  You'll have to run the three peers by hand.
-The script just creates configuration files and ZFS datasets.  The script must
-be run as root.
-
-To use the script, you'll need to know:
-
-* The local IP address you intend to use for these Manatee peers.  If you don't
-  know, you can run "ifconfig -a" and pick one.  The tool does not do this
-  automatically because common develompent environments have multiple addresses,
-  only one of which is correct for this purpose, and it's impossible for the
-  script to know which to use.
-* The IP address and port of a remote ZooKeeper server.  The port is usually
-  2181.  The value you use here is actually a comma-separated list of IP:PORT
-  pairs.
-
-To use this script, as the root user, run:
-
-    # ./tools/mkdevsitters MY_IP ZK_IPS
-
-For example, if my local IP is 172.21.1.74 and there's a ZooKeeper server at
-172.21.1.11, I might run this as root:
-
-    # ./tools/mkdevsitters 172.21.1.74 172.21.1.11:2181
-
-This does several things:
-
-* Creates a directory called "devconfs" in the current directory.  "devconfs"
-  will contain the configuration and data for each of the three test peers.
-* Creates three ZFS datasets under zones/$(zonename)/data, called "peer1",
-  "peer2", and "peer3".  The mountpoints for these datasets are in
-  "devconfs/datasets".
-* Creates configuration files for the Manatee sitter and Manatee backup server
-  in "devconfs/sitterN".  Also creates a template postgres configuration file
-  in the same directory.
-
-The various services associated with each peer (postgres itself, the sitter's
-status API, the backup server, and so on) are all configured to run on different
-ports.  The first peer runs on the default ports; subsequent peers run on ports
-numbered 10 more than the previous port.  The default postgres port is 5432, so
-the first peer runs postgres on port 5432, the second peer runs postgres on port
-5442, and the third peer runs postgres on port 5452.
+Manatee clusters typically contain three nodes: a primary, a synchronous peer
+("sync"), and an asynchronous peer ("async").  The primary replicates
+synchronously to the sync, which means that transactions cannot commit on the
+primary unless they're also recorded on the sync.  This ensures that loss of the
+primary never loses data, and the sync can take over as primary at any time
+without losing data.
 
 
-### Running each peer
+#### Automated failure detection and recovery
 
-There are currently two components to run for each peer: the sitter (which also
-starts postgres) and the backup server (which is used for bootstrapping
-replication for new downstream peers).  To start the first peer, use:
+Failure is determined by loss of connectivity to the ZooKeeper cluster.  If the
+primary fails, the sync takes over as primary, and the async takes over as sync.
+The cluster can serve reads nearly the entire time, though Postgres clients need
+to redirect reads to the new primary.  The cluster will be able to serve writes
+as soon as the async catches up, which is typically in a few seconds, even in
+busy systems.
 
-    # node sitter.js -f devconfs/sitter1/sitter.json
+Due to limitations of Postgres, when a primary is removed from the cluster, it's
+usually not possible to re-add it to the cluster without losing data.  Manatee
+never does this automatically.  As a result, operator intervention is required
+to bring the cluster back to the same number of peers.  See the user guide for
+details.
 
-You'll probably want to pipe this to bunyan.  Be sure to run this as root.  To
-run other peers, replace "sitter1" with "sitter2" or "sitter3".
+Because of this, each asynchronous peer that you add to the cluster increases
+the number of peers you can lose without requiring operator intervention to
+recover the cluster.  No matter how many peers are part of the cluster, the
+cluster can continue operating as long as only two peers are operating (a
+primary and sync) and as long as you've never lost a primary *and* sync before a
+new sync was able to catch up.
 
-Similarly, to run the backupserver, use:
 
-    # node backupserver.js -f devconfs/sitter1/backupserver.json
+#### Avoiding split-brain
 
-There's also a snapshotter, but running that for development is not yet
-documented.
+The primary is the only database instance that's writable, and it's always
+configured for synchronous replication.  This prevents a split-brain situation.
+
+
+#### Surviving availability zone failure
+
+In some production deployments, multiple peers for the same Manatee cluster are
+deployed in separate availability zones within the same region.  In practice,
+we mean that the availability zones share no common physical components, but
+they do share low-latency, high-bandwidth network connections between them.  In
+this way, a Manatee configuration can survive failures or partition events that
+affect entire availability zones.
+
+
+## Production deployments
+
+Manatee is a core component of Joyent's
+[SmartDataCenter](http://github.com/joyent/sdc) as well as the
+[Manta](http://github.com/joyent/manta) storage service.  It's running in
+production in all of Joyent's datacenters, as well as SDC and Manta customers.

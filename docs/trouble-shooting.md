@@ -12,7 +12,7 @@
 <!-- DON'T EDIT THIS SECTION, INSTEAD RE-RUN doctoc TO UPDATE -->
 **Table of Contents**  *generated with [DocToc](http://doctoc.herokuapp.com/)*
 
-- [Troubleshoot a Manatee Shard in Distress.](#troubleshoot-a-manatee-shard-in-distress)
+- [Troubleshoot a Manatee Cluster in Distress.](#troubleshoot-a-manatee-cluster-in-distress)
   - [Warning](#warning)
 - [Manatee-adm](#manatee-adm)
 - [Healthy Manatee](#healthy-manatee)
@@ -30,9 +30,9 @@
 <!-- END doctoc generated TOC please keep comment here to allow auto update -->
 
 **Table of Contents**
-# Troubleshoot a Manatee Shard in Distress.
+# Troubleshoot a Manatee Cluster in Distress.
 This guide will list the most common failure scenarios of Manatee and steps to
-resuscitate the Shard.
+resuscitate the Cluster.
 
 ## Warning
 You should read the user guide first to ensure you understand
@@ -44,7 +44,7 @@ The primary way an operator should be interacting with manatee is via the
 `manatee-adm` CLI.
 
 # Healthy Manatee
-The output of `# manatee-adm status` of a healthy manatee shard will look like
+The output of `# manatee-adm status` of a healthy manatee cluster will look like
 this.
 ```json
 {
@@ -114,7 +114,7 @@ this.
     }
 }
 ```
-There are 3 peers in this shard, a `primary`, `sync`, and `async`.  The "online"
+There are 3 peers in this cluster, a `primary`, `sync`, and `async`.  The "online"
 field indicates that Postgres is online.
 
 Pay close attention to ther `repl` field of each peer. The repl field represents
@@ -124,12 +124,12 @@ with an empty `repl` field means replication is offline between the primary and
 the sync. A sync peer with an empty `repl` field means that replication is
 offline between the sync and the async.
 
-A 3-node manatee shard is healthy only if there are 3 peers in the shard, all
+A 3-node manatee cluster is healthy only if there are 3 peers in the cluster, all
 three peers are marked `"online": true` and `primary.repl.sync_state ===
 'sync'`, and `sync.repl.sync_state === 'async'`
 
 # Symptoms
-Here are some commonly seen outputs of `manatee-adm status` when the shard is
+Here are some commonly seen outputs of `manatee-adm status` when the cluster is
 unhealthy. Before you start: click [here](http://calmingmanatee.com/).
 
 ## manatee-adm status Shows Only a Primary peer.
@@ -148,7 +148,7 @@ unhealthy. Before you start: click [here](http://calmingmanatee.com/).
     }
 }
 ```
-This assumes you have an HA manatee shard setup. Some installations of SDC such
+This assumes you have an HA manatee cluster setup. Some installations of SDC such
 as COAL by default only come with 1 manatee peer. In those cases, this is the
 expected output of `# manatee-adm status`.
 

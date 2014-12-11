@@ -8,7 +8,7 @@
 
 ## DESCRIPTION
 
-The `manatee-adm` command is used to administer a Manatee shard.
+The `manatee-adm` command is used to administer a Manatee cluster.
 
 ## COMMANDS
 
@@ -19,8 +19,8 @@ from the package.json in the manatee.git repo.
 
 ### status [-hsl] -z
 
-Display the status of the current manatee shard. By default, the status for
-every shard is returned.
+Display the status of the current manatee cluster. By default, the status for
+every cluster is returned.
 
 -h, --help
     Displays a help message.
@@ -29,26 +29,26 @@ every shard is returned.
     Disply the topology based on the order in `/election`, as was the way the
     topology was determined in Manatee 1.0.
 
--s, --shard shard
-    Display status for the specified shard only.
+-s, --shard cluster
+    Display status for the specified cluster only.
 
 -z, --zk Zookeeper url
     Zookeeper url (such as `10.0.1.1:2181`)
 
-The output is a JSON object which encapsulates the state of the Manatee shard.
-Each peer in the shard is denoted by its role in the shard, which will be
+The output is a JSON object which encapsulates the state of the Manatee cluster.
+Each peer in the cluster is denoted by its role in the cluster, which will be
 either `primary`, `sync`, or `async`. If there are greater than 3 peers in the
-shard, each additional peer will be denoted `asyncn`, where n is a
+cluster, each additional peer will be denoted `asyncn`, where n is a
 monotonically increasing integer starting at 1.
 
 The "online" field indicates if postgres is currently running.
 
-The output also indicates whether the topology is frozen for that shard as well
+The output also indicates whether the topology is frozen for that cluster as well
 as any deposed peers.  Deposed peers are displayed in a similar to how asyncs
 are displayed.
 
 The `repl` field contains postgresql replication information of the next peer
-in the shard. On the primary, this would be the `sync` peer, and on the `sync`
+in the cluster. On the primary, this would be the `sync` peer, and on the `sync`
 this would be the `async` peer.
 
 ```
@@ -125,7 +125,7 @@ Gets the cluster state object from zookeeper and display it.
 -h, --help
     Displays a help message.
 
--s, --shard shard
+-s, --shard cluster
     Shard name.
 
 -z, --zk Zookeeper url
@@ -140,7 +140,7 @@ Gets the list of active manatee peers currently registered in zk.
 -h, --help
     Displays a help message.
 
--s, --shard shard
+-s, --shard cluster
     Shard name.
 
 -z, --zk Zookeeper url
@@ -154,7 +154,7 @@ documentation on migration for the appropriate use of this tool.
 -h, --help
     Displays a help message.
 
--s, --shard shard
+-s, --shard cluster
     Shard name.
 
 -z, --zk Zookeeper url
@@ -169,7 +169,7 @@ will order and display the
 -h, --help
     Displays a help message.
 
--s, --shard shard
+-s, --shard cluster
     Shard name.
 
 -z, --zk Zookeeper url
@@ -192,12 +192,12 @@ Each line for Manatee 1.0 changes contains the following fields.
 * `date` Time in UTC of the transition event.
 * `ip` IP address of the peer.
 * `action` Transition event type, one of
-    * `AssumeLeader`, the peer has become the primary of this shard.
+    * `AssumeLeader`, the peer has become the primary of this cluster.
     * `NewLeader`, the peer has a new leader it's replicating from.
     * `NewStandby`, the peer has a new standby it's replicating to.
-    * `ExpiredStandby`, the peer's current standby has expired from the shard.
+    * `ExpiredStandby`, the peer's current standby has expired from the cluster.
 * `role` Current role of the peer, one of `Leader` or `Standby`. The primary of
-the shard will be `Leader`, and all other peers will be `Standby`.
+the cluster will be `Leader`, and all other peers will be `Standby`.
 * `master` Peer we are replicating from.
 * `slave` Peer we are replicating to.
 * `zkSeq` Internal tracker of the number of state transitions.
@@ -238,7 +238,7 @@ Check the existence of a lock path in Zookeeper. Returns 1 if the lock exists,
 
 ### freeze
 
-This tool is for the times when an operator would like to "freeze" this shard so
+This tool is for the times when an operator would like to "freeze" this cluster so
 that no state transitions will be made.  When the cluster is frozen, the reason
 will be displayed when running `manatee-adm status`:
 
@@ -246,10 +246,10 @@ will be displayed when running `manatee-adm status`:
     Displays a help message.
 
 -r --reason
-    The reason the operator is freezing this shard.  It is a free-form string
-    that will be displayed when displaying shard status.
+    The reason the operator is freezing this cluster.  It is a free-form string
+    that will be displayed when displaying cluster status.
 
--s, --shard shard
+-s, --shard cluster
     Shard name.
 
 -z, --zk Zookeeper url
@@ -271,12 +271,12 @@ Frozen.
 
 ### unfreeze
 
-Unfreezes the shard so that automatic topology changes are enabled.
+Unfreezes the cluster so that automatic topology changes are enabled.
 
 -h, --help
     Displays a help message.
 
--s, --shard shard
+-s, --shard cluster
     Shard name.
 
 -z, --zk Zookeeper url
@@ -293,7 +293,7 @@ isn't accidentally enabled.  Use with extreme caution.
 -h, --help
     Displays a help message.
 
--s, --shard shard
+-s, --shard cluster
     Shard name.
 
 -m, --mode on|off
@@ -308,7 +308,7 @@ isn't accidentally enabled.  Use with extreme caution.
 ### remove-deposed
 
 ***Warning***: Removing from deposed is done as part of the `rebuild` command.
-Use this tool without rebuilding could cause your shard to wedge.
+Use this tool without rebuilding could cause your cluster to wedge.
 
 When a primary fails and the sync takes over as primary, the old primary is
 moved into a "deposed" state.  Operators should normally rebuild a node, but in
@@ -331,7 +331,7 @@ address or the zonename.
 -n, --zonename
     The zonename of the peer to remove.  Can be used in place of the ip address.
 
--s, --shard shard
+-s, --shard cluster
     Shard name.
 
 -z, --zk Zookeeper url

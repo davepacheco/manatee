@@ -21,7 +21,7 @@ topology are as follows:
 Details for each step are below, specifically things you can check to make sure
 your migration is running smoothly.  It is assumed that:
 
-1. You are running a shard with three nodes
+1. You are running a cluster with three nodes
 2. You are familiar with running the `manatee-adm` command
 3. You are familiar with reprovisioning zones
 4. You are familiar with where to find logs
@@ -67,7 +67,7 @@ f29499ea-b50c-431e-9975-e4bf760fb5e1 primary
 d0c715ab-1d55-43cd-88f2-f6bfe3960683 async
 ```
 
-Verify that all members of your shard are up and operational.  Take note of the
+Verify that all members of your cluster are up and operational.  Take note of the
 topology, specifically which zone is the primary, the sync and the async.
 Reprovision the async to a manatee version that uses a persisted state object
 for the topology.
@@ -152,7 +152,7 @@ both slaving from the original primary.  You can check that the cluster state
 is correct by running `async$ manatee-adm state | json`.
 
 Note that since this is a non-standard configuration `manatee-adm status` will
-**not** look like a "healthy" manatee shard:
+**not** look like a "healthy" manatee cluster:
 
 ```
 [root@4afba482 (postgres) ~]$ manatee-adm status | json
@@ -437,18 +437,18 @@ WatchedEvent state:SyncConnected type:None path:null
 After the primary is reprovisioned:
 
 1. Take note of the current topology.
-1. Disable all manatee-sitters in the shard.
+1. Disable all manatee-sitters in the cluster.
 1. Delete the state object (as above)
 1. Roll back the primary.
 1. Roll back the sync.
 1. Roll back the async.
 
-## One-node shard upgrade
+## One-node cluster upgrade
 
 1. Reprovision the primary
 2. Backfill the cluster state: `primary$ manatee-adm state-backfill`
 
-## Two-node shard upgrade
+## Two-node cluster upgrade
 
 1. Reprovision the sync
 2. Backfill the cluster state: `sync$ manatee-adm state-backfill`
