@@ -10,19 +10,93 @@
  * Copyright (c) 2015, Joyent, Inc.
  */
 var adm = require('../lib/adm');
+var assert = require('assert');
 var cmdln = require('cmdln');
 var fs = require('fs');
 var util = require('util');
 var path = require('path');
 var tab = require('tab');
+var VError = require('verror');
+
+var commonOptions = {
+    'help': {
+        names: ['help', 'h'],
+        type: 'bool',
+        help: 'Show this help'
+    },
+    'ignorePrompts': {
+        names: ['ignorePrompts', 'y'],
+        type: 'bool',
+        helpArg: 'IGNORE_PROMPTS',
+        help: 'Skip confirmation prompts (can be dangerous) ',
+        default: false
+    },
+    'shard': {
+        names: ['shard', 's'],
+        type: 'string',
+        helpArg: 'SHARD',
+        help: 'Name of the manatee shard',
+        default: process.env.SHARD
+    },
+    'zk': {
+        names: ['zk', 'z'],
+        type: 'string',
+        helpArg: 'ZOOKEEPER_URL',
+        help: 'The zookeeper connection string. (e.g., 127.0.0.1:2181)',
+        default: process.env.ZK_IPS
+    }
+};
 
 function ManateeAdm() {
     cmdln.Cmdln.call(this, {
         name: 'manatee-adm',
         desc: 'Inspect and administer Manatee'
     });
+
+    this.arg0 = 'manatee-adm';
 }
 util.inherits(ManateeAdm, cmdln.Cmdln);
+
+/**
+ * Emit an error message, then the usage message, and then exit.
+ */
+ManateeAdm.prototype.usage = function (message, subcmd, cb)
+{
+    var self = this;
+
+    console.error('%s: %s', self.arg0, message);
+    self.do_help('help', {}, [subcmd], cb);
+    assert.ok(false, 'internal error: did not expect do_help() to return');
+};
+
+/**
+ * Check for a required command-line option.  If option "option" was not
+ * specified in "opts", then print an error message, then the usage message,
+ * then exit.  This function does not return on failure.
+ */
+ManateeAdm.prototype.checkRequiredOption = function (subcmd, opts, option, cb)
+{
+    var self = this;
+
+    if (!opts[option]) {
+        self.usage('option is required: --' + option, subcmd, cb);
+    }
+};
+
+/*
+ * Checks whether the "help" option was specified.  If so, print the usage
+ * message and exit.  This function does not return if it prints the help
+ * message.
+ */
+ManateeAdm.prototype.checkHelpRequested = function (subcmd, opts, cb)
+{
+    var self = this;
+
+    if (opts.help) {
+        self.do_help('help', {}, [subcmd], cb);
+        assert.ok(false, 'internal error: did not expect do_help() to return');
+    }
+};
 
 /**
  * Prints the version for this manatee-adm (and, hence, manatee itself).  Taken
@@ -30,9 +104,8 @@ util.inherits(ManateeAdm, cmdln.Cmdln);
  */
 ManateeAdm.prototype.do_version = function (subcmd, opts, args, cb) {
     var self = this;
-    if (opts.help) {
-        self.do_help('help', {}, [subcmd], cb);
-    }
+
+    self.checkHelpRequested(subcmd, opts, cb);
 
     var file = path.resolve(path.dirname(__dirname), 'package.json');
     var error;
@@ -45,11 +118,7 @@ ManateeAdm.prototype.do_version = function (subcmd, opts, args, cb) {
     }
     return (cb(error));
 };
-ManateeAdm.prototype.do_version.options = [ {
-    names: ['help', 'h'],
-    type: 'bool',
-    help: 'Show this help'
-}];
+ManateeAdm.prototype.do_version.options = [ commonOptions.help ];
 ManateeAdm.prototype.do_version.help = (
     'Shows the version of manatee, taken from the package.json. \n' +
     '\n' +
@@ -64,13 +133,9 @@ ManateeAdm.prototype.do_version.help = (
  */
 ManateeAdm.prototype.do_status = function (subcmd, opts, args, cb) {
     var self = this;
-    if (opts.help) {
-        self.do_help('help', {}, [subcmd], cb);
-    }
 
-    if (!opts.zk) {
-        self.do_help('help', {}, [subcmd], cb);
-    }
+    self.checkHelpRequested(subcmd, opts, cb);
+    self.checkRequiredOption(subcmd, opts, 'zk', cb);
 
     adm.status(opts, function (err, status) {
         if (err) {
@@ -81,29 +146,19 @@ ManateeAdm.prototype.do_status = function (subcmd, opts, args, cb) {
         }
     });
 };
-ManateeAdm.prototype.do_status.options = [ {
-    names: ['help', 'h'],
-    type: 'bool',
-    help: 'Show this help'
-}, {
-    names: ['legacyOrderMode', 'l'],
-    type: 'bool',
-    helpArg: 'LEGACY_ORDER_MODE',
-    help: 'Show what the status is based on what is in the ZK election path ' +
-        'rather than what is in the cluster state object.',
-    default: false
-}, {
-    names: ['shard', 's'],
-    type: 'string',
-    helpArg: 'SHARD',
-    help: 'The manatee shard to stat. If empty status will show all shards'
-}, {
-    names: ['zk', 'z'],
-    type: 'string',
-    helpArg: 'ZOOKEEPER_URL',
-    help: 'The zookeeper connection string. e.g. 127.0.0.1:2181',
-    default: process.env.ZK_IPS
-}];
+ManateeAdm.prototype.do_status.options = [
+    commonOptions.help,
+    {
+        names: ['legacyOrderMode', 'l'],
+        type: 'bool',
+        helpArg: 'LEGACY_ORDER_MODE',
+        help: 'Show what the status is based on what is in the ZK ' +
+            'election path rather than what is in the cluster state object.',
+        default: false
+    },
+    commonOptions.shard,
+    commonOptions.zk
+];
 ManateeAdm.prototype.do_status.help = (
     'Show status of a manatee shard. \n' +
     '\n' +
@@ -114,17 +169,58 @@ ManateeAdm.prototype.do_status.help = (
 );
 
 /**
+ * Display the current postgres status for this shard.  This is a more useful
+ * display of the overall shard status.
+ */
+ManateeAdm.prototype.do_pg_status = function (subcmd, opts, args, cb) {
+    var self = this;
+
+    self.checkHelpRequested(subcmd, opts, cb);
+    self.checkRequiredOption(subcmd, opts, 'shard', cb);
+    self.checkRequiredOption(subcmd, opts, 'zk', cb);
+
+    adm.status(opts, function (err, status) {
+        if (!err && !status.hasOwnProperty(opts.shard)) {
+            err = new VError('shard not found: "%s"', opts.shard);
+        }
+        if (err) {
+            return cb(err);
+        } else {
+            pgStatus(status[opts.shard]);
+            return cb();
+        }
+    });
+};
+ManateeAdm.prototype.do_pg_status.options = [
+    commonOptions.help,
+    commonOptions.shard,
+    commonOptions.zk
+];
+ManateeAdm.prototype.do_pg_status.help = (
+    'Show the postgres status of a manatee shard. \n' +
+    '\n' +
+    'Usage:\n' +
+    '    {{name}} pg-status [OPTIONS]\n' +
+    '\n' +
+    '{{options}}'
+);
+
+function pgStatus(pgstatus)
+{
+        /* XXX NYI */
+        console.log(pgstatus);
+}
+
+
+/**
  * Display the current cluster state.
  */
 ManateeAdm.prototype.do_state = function (subcmd, opts, args, cb) {
     var self = this;
-    if (opts.help) {
-        self.do_help('help', {}, [subcmd], cb);
-    }
 
-    if (!opts.zk) {
-        self.do_help('help', {}, [subcmd], cb);
-    }
+    self.checkHelpRequested(subcmd, opts, cb);
+    self.checkRequiredOption(subcmd, opts, 'shard', cb);
+    self.checkRequiredOption(subcmd, opts, 'zk', cb);
 
     adm.state(opts, function (err, state) {
         if (err) {
@@ -135,23 +231,11 @@ ManateeAdm.prototype.do_state = function (subcmd, opts, args, cb) {
         }
     });
 };
-ManateeAdm.prototype.do_state.options = [ {
-    names: ['help', 'h'],
-    type: 'bool',
-    help: 'Show this help'
-}, {
-    names: ['shard', 's'],
-    type: 'string',
-    helpArg: 'SHARD',
-    help: 'Get the state for this manatee shard.',
-    default: process.env.SHARD
-}, {
-    names: ['zk', 'z'],
-    type: 'string',
-    helpArg: 'ZOOKEEPER_URL',
-    help: 'The zookeeper connection string. e.g. 127.0.0.1:2181',
-    default: process.env.ZK_IPS
-}];
+ManateeAdm.prototype.do_state.options = [
+    commonOptions.help,
+    commonOptions.shard,
+    commonOptions.zk
+];
 ManateeAdm.prototype.do_state.help = (
     'Show the cluster state stored in ZK for this shard. \n' +
     '\n' +
@@ -166,13 +250,10 @@ ManateeAdm.prototype.do_state.help = (
  */
 ManateeAdm.prototype.do_active = function (subcmd, opts, args, cb) {
     var self = this;
-    if (opts.help) {
-        self.do_help('help', {}, [subcmd], cb);
-    }
 
-    if (!opts.zk) {
-        self.do_help('help', {}, [subcmd], cb);
-    }
+    self.checkHelpRequested(subcmd, opts, cb);
+    self.checkRequiredOption(subcmd, opts, 'shard', cb);
+    self.checkRequiredOption(subcmd, opts, 'zk', cb);
 
     adm.active(opts, function (err, active) {
         if (err) {
@@ -183,23 +264,11 @@ ManateeAdm.prototype.do_active = function (subcmd, opts, args, cb) {
         }
     });
 };
-ManateeAdm.prototype.do_active.options = [ {
-    names: ['help', 'h'],
-    type: 'bool',
-    help: 'Show this help'
-}, {
-    names: ['shard', 's'],
-    type: 'string',
-    helpArg: 'SHARD',
-    help: 'Get the active for this manatee shard.',
-    default: process.env.SHARD
-}, {
-    names: ['zk', 'z'],
-    type: 'string',
-    helpArg: 'ZOOKEEPER_URL',
-    help: 'The zookeeper connection string. e.g. 127.0.0.1:2181',
-    default: process.env.ZK_IPS
-}];
+ManateeAdm.prototype.do_active.options = [
+    commonOptions.help,
+    commonOptions.shard,
+    commonOptions.zk
+];
 ManateeAdm.prototype.do_active.help = (
     'Display the current active peers for a shard. \n' +
     'Since this displays exactly what is in zookeeper, this may show\n' +
@@ -216,13 +285,10 @@ ManateeAdm.prototype.do_active.help = (
  */
 ManateeAdm.prototype.do_state_backfill = function (subcmd, opts, args, cb) {
     var self = this;
-    if (opts.help) {
-        self.do_help('help', {}, [subcmd], cb);
-    }
 
-    if (!opts.zk) {
-        self.do_help('help', {}, [subcmd], cb);
-    }
+    self.checkHelpRequested(subcmd, opts, cb);
+    self.checkRequiredOption(subcmd, opts, 'shard', cb);
+    self.checkRequiredOption(subcmd, opts, 'zk', cb);
 
     adm.stateBackfill(opts, function (err, state) {
         if (err) {
@@ -233,31 +299,14 @@ ManateeAdm.prototype.do_state_backfill = function (subcmd, opts, args, cb) {
         }
     });
 };
-ManateeAdm.prototype.do_state_backfill.options = [ {
-    names: ['help', 'h'],
-    type: 'bool',
-    help: 'Show this help'
-}, {
-    names: ['shard', 's'],
-    type: 'string',
-    helpArg: 'SHARD',
-    help: 'Backfill the state for this manatee shard.',
-    default: process.env.SHARD
-}, {
-    names: ['ignorePrompts', 'y'],
-    type: 'bool',
-    helpArg: 'IGNORE_PROMPTS',
-    help: 'Set this to skip prompts (is dangerous) ',
-    default: false
-}, {
-    names: ['zk', 'z'],
-    type: 'string',
-    helpArg: 'ZOOKEEPER_URL',
-    help: 'The zookeeper connection string. e.g. 127.0.0.1:2181',
-    default: process.env.ZK_IPS
-}];
+ManateeAdm.prototype.do_state_backfill.options = [
+    commonOptions.help,
+    commonOptions.shard,
+    commonOptions.ignorePrompts,
+    commonOptions.zk
+];
 ManateeAdm.prototype.do_state_backfill.help = (
-    'Backfill the cluster state for the shard, only if no state exists. \n' +
+    'Backfill the cluster state for the shard.\n' +
     '\n' +
     '!!! WARNING !!! \n' +
     'This will only work when no cluster state has been written. \n' +
@@ -282,17 +331,10 @@ ManateeAdm.prototype.do_state_backfill.help = (
  */
 ManateeAdm.prototype.do_check_lock = function (subcmd, opts, args, cb) {
     var self = this;
-    if (opts.help) {
-        self.do_help('help', {}, [subcmd], cb);
-    }
 
-    if (!opts.path) {
-        self.do_help('help', {}, [subcmd], cb);
-    }
-
-    if (!opts.zk) {
-        self.do_help('help', {}, [subcmd], cb);
-    }
+    self.checkHelpRequested(subcmd, opts, cb);
+    self.checkRequiredOption(subcmd, opts, 'path', cb);
+    self.checkRequiredOption(subcmd, opts, 'zk', cb);
 
     adm.checkLock(opts, function (err, stat) {
         if (err || stat) {
@@ -302,22 +344,16 @@ ManateeAdm.prototype.do_check_lock = function (subcmd, opts, args, cb) {
         return cb();
     });
 };
-ManateeAdm.prototype.do_check_lock.options = [ {
-    names: ['help', 'h'],
-    type: 'bool',
-    help: 'Show this help'
-}, {
-    names: ['path', 'p'],
-    type: 'string',
-    helpArg: 'LOCK_PATH',
-    help: 'The manatee lock path in ZK'
-}, {
-    names: ['zk', 'z'],
-    type: 'string',
-    helpArg: 'ZOOKEEPER_URL',
-    help: 'The zookeeper connection string. e.g. 127.0.0.1:2181',
-    default: process.env.ZK_IPS
-}];
+ManateeAdm.prototype.do_check_lock.options = [
+    commonOptions.help,
+    {
+        names: ['path', 'p'],
+        type: 'string',
+        helpArg: 'LOCK_PATH',
+        help: 'The manatee lock path in ZK'
+    },
+    commonOptions.zk
+];
 ManateeAdm.prototype.do_check_lock.help = (
     'Check the status of a manatee lock. \n' +
     '\n' +
@@ -335,23 +371,12 @@ ManateeAdm.prototype.do_history = function (subcmd, opts, args, cb) {
     var self = this;
     var histopts;
 
-    if (opts.help) {
-        self.do_help('help', {}, [subcmd], cb);
-    }
-
-    if (!opts.shard) {
-        console.error('-s / --shard is required');
-        self.do_help('help', {}, [subcmd], cb);
-    }
-
-    if (!opts.zk) {
-        console.error('-z / --zk is required');
-        self.do_help('help', {}, [subcmd], cb);
-    }
+    self.checkHelpRequested(subcmd, opts, cb);
+    self.checkRequiredOption(subcmd, opts, 'shard', cb);
+    self.checkRequiredOption(subcmd, opts, 'zk', cb);
 
     if (opts.sort != 'zkSeq' && opts.sort != 'time') {
-        console.error('-s / --sort must be one of "zkSeq" or "time"');
-        self.do_help('help', {}, [subcmd], cb);
+        self.usage('-s / --sort must be one of "zkSeq" or "time"', subcmd, cb);
     }
 
     histopts = {
@@ -456,41 +481,33 @@ ManateeAdm.prototype.do_history = function (subcmd, opts, args, cb) {
         return cb();
     });
 };
-ManateeAdm.prototype.do_history.options = [ {
-    names: ['showFullHostnames'],
-    type: 'bool',
-    help: 'Show full hostnames (instead of abbreviated versions)'
-}, {
-    names: ['help', 'h'],
-    type: 'bool',
-    help: 'Show this help'
-}, {
-    names: ['json', 'j'],
-    type: 'bool',
-    help: 'Emit stable JSON output'
-}, {
-    names: ['shard', 's'],
-    type: 'string',
-    helpArg: 'SHARD',
-    help: 'The manatee shard name',
-    default: process.env.SHARD
-}, {
-    names: [ 'sort' ],
-    type: 'string',
-    helpArg: 'SORTFIELD',
-    help: 'Sort field (either "zkSeq" (default) or "time")',
-    default: 'zkSeq'
-}, {
-    names: [ 'verbose', 'v' ],
-    type: 'bool',
-    help: 'Show human-readable summary of each event'
-}, {
-    names: ['zk', 'z'],
-    type: 'string',
-    helpArg: 'ZOOKEEPER_URL',
-    help: 'The zookeeper connection string (e.g., 127.0.0.1:2181)',
-    default: process.env.ZK_IPS
-}];
+ManateeAdm.prototype.do_history.options = [
+    commonOptions.help,
+    {
+        names: ['json', 'j'],
+        type: 'bool',
+        help: 'Emit stable JSON output'
+    },
+    commonOptions.shard,
+    {
+        names: ['showFullHostnames'],
+        type: 'bool',
+        help: 'Show full hostnames (instead of abbreviated versions)'
+    },
+    {
+        names: [ 'sort' ],
+        type: 'string',
+        helpArg: 'SORTFIELD',
+        help: 'Sort field (either "zkSeq" (default) or "time")',
+        default: 'zkSeq'
+    },
+    {
+        names: [ 'verbose', 'v' ],
+        type: 'bool',
+        help: 'Show human-readable summary of each event'
+    },
+    commonOptions.zk
+];
 ManateeAdm.prototype.do_history.help = (
     'Displays history of cluster state changes for this shard. \n' +
     '\n' +
@@ -505,12 +522,9 @@ ManateeAdm.prototype.do_history.help = (
  */
 ManateeAdm.prototype.do_rebuild = function (subcmd, opts, args, cb) {
     var self = this;
-    if (opts.help) {
-        self.do_help('help', {}, [subcmd], cb);
-    }
-    if (!opts.config) {
-        self.do_help('help', {}, [subcmd], cb);
-    }
+
+    self.checkHelpRequested(subcmd, opts, cb);
+    self.checkRequiredOption(subcmd, opts, 'config', cb);
 
     try {
         var cfg = JSON.parse(fs.readFileSync(opts.config, 'utf8'));
@@ -525,29 +539,18 @@ ManateeAdm.prototype.do_rebuild = function (subcmd, opts, args, cb) {
         return (cb(err));
     });
 };
-ManateeAdm.prototype.do_rebuild.options = [ {
-    names: ['help', 'h'],
-    type: 'bool',
-    help: 'Show this help'
-}, {
-    names: ['config', 'c'],
-    type: 'string',
-    helpArg: 'CONFIG',
-    help: 'The path to the manatee sitter config to list',
-    default: process.env.MANATEE_SITTER_CONFIG
-}, {
-    names: ['ignorePrompts', 'y'],
-    type: 'bool',
-    helpArg: 'IGNORE_PROMPTS',
-    help: 'Set this to skip prompts (is dangerous) ',
-    default: false
-}, {
-    names: ['zk', 'z'],
-    type: 'string',
-    helpArg: 'ZOOKEEPER_URL',
-    help: 'The zookeeper connection string. e.g. 127.0.0.1:2181',
-    default: process.env.ZK_IPS
-}];
+ManateeAdm.prototype.do_rebuild.options = [
+    commonOptions.help,
+    {
+        names: ['config', 'c'],
+        type: 'string',
+        helpArg: 'CONFIG',
+        help: 'The path to the manatee sitter config to list',
+        default: process.env.MANATEE_SITTER_CONFIG
+    },
+    commonOptions.ignorePrompts,
+    commonOptions.zk
+];
 ManateeAdm.prototype.do_rebuild.help = (
     'Rebuild a manatee zone. \n' +
     '\n' +
@@ -563,18 +566,11 @@ ManateeAdm.prototype.do_rebuild.help = (
  */
 ManateeAdm.prototype.do_freeze = function (subcmd, opts, args, cb) {
     var self = this;
-    if (opts.help) {
-        self.do_help('help', {}, [subcmd], cb);
-    }
 
-    if (!opts.shard) {
-        self.do_help('help', {}, [subcmd], cb);
-    }
-
-    if (!opts.reason) {
-        console.log('!!! -r [reason] is required !!!');
-        self.do_help('help', {}, [subcmd], cb);
-    }
+    self.checkHelpRequested(subcmd, opts, cb);
+    self.checkRequiredOption(subcmd, opts, 'reason', cb);
+    self.checkRequiredOption(subcmd, opts, 'shard', cb);
+    self.checkRequiredOption(subcmd, opts, 'zk', cb);
 
     adm.freeze(opts, function (err) {
         if (err) {
@@ -585,28 +581,17 @@ ManateeAdm.prototype.do_freeze = function (subcmd, opts, args, cb) {
         return cb();
     });
 };
-ManateeAdm.prototype.do_freeze.options = [ {
-    names: ['help', 'h'],
-    type: 'bool',
-    help: 'Show this help'
-}, {
-    names: ['reason', 'r'],
-    type: 'string',
-    helpArg: 'REASON',
-    help: 'The reason this shard is being frozen'
-}, {
-    names: ['shard', 's'],
-    type: 'string',
-    helpArg: 'SHARD',
-    help: 'The manatee shard',
-    default: process.env.SHARD
-}, {
-    names: ['zk', 'z'],
-    type: 'string',
-    helpArg: 'ZOOKEEPER_URL',
-    help: 'The zookeeper connection string. e.g. 127.0.0.1:2181',
-    default: process.env.ZK_IPS
-}];
+ManateeAdm.prototype.do_freeze.options = [
+    commonOptions.help,
+    {
+        names: ['reason', 'r'],
+        type: 'string',
+        helpArg: 'REASON',
+        help: 'The reason this shard is being frozen'
+    },
+    commonOptions.shard,
+    commonOptions.zk
+];
 ManateeAdm.prototype.do_freeze.help = (
     'Freeze a shard\'s topology. \n' +
     '\n' +
@@ -621,13 +606,10 @@ ManateeAdm.prototype.do_freeze.help = (
  */
 ManateeAdm.prototype.do_unfreeze = function (subcmd, opts, args, cb) {
     var self = this;
-    if (opts.help) {
-        self.do_help('help', {}, [subcmd], cb);
-    }
 
-    if (!opts.shard) {
-        self.do_help('help', {}, [subcmd], cb);
-    }
+    self.checkHelpRequested(subcmd, opts, cb);
+    self.checkRequiredOption(subcmd, opts, 'shard', cb);
+    self.checkRequiredOption(subcmd, opts, 'zk', cb);
 
     adm.unfreeze(opts, function (err) {
         if (err) {
@@ -638,23 +620,11 @@ ManateeAdm.prototype.do_unfreeze = function (subcmd, opts, args, cb) {
         return cb();
     });
 };
-ManateeAdm.prototype.do_unfreeze.options = [ {
-    names: ['help', 'h'],
-    type: 'bool',
-    help: 'Show this help'
-}, {
-    names: ['shard', 's'],
-    type: 'string',
-    helpArg: 'SHARD',
-    help: 'The manatee shard',
-    default: process.env.SHARD
-}, {
-    names: ['zk', 'z'],
-    type: 'string',
-    helpArg: 'ZOOKEEPER_URL',
-    help: 'The zookeeper connection string. e.g. 127.0.0.1:2181',
-    default: process.env.ZK_IPS
-}];
+ManateeAdm.prototype.do_unfreeze.options = [
+    commonOptions.help,
+    commonOptions.shard,
+    commonOptions.zk
+];
 ManateeAdm.prototype.do_unfreeze.help = (
     'Unfreeze a shard\'s topology. \n' +
     '\n' +
@@ -669,13 +639,11 @@ ManateeAdm.prototype.do_unfreeze.help = (
  */
 ManateeAdm.prototype.do_set_onwm = function (subcmd, opts, args, cb) {
     var self = this;
-    if (opts.help) {
-        self.do_help('help', {}, [subcmd], cb);
-    }
 
-    if (!opts.shard) {
-        self.do_help('help', {}, [subcmd], cb);
-    }
+    self.checkHelpRequested(subcmd, opts, cb);
+    self.checkRequiredOption(subcmd, opts, 'mode', cb);
+    self.checkRequiredOption(subcmd, opts, 'shard', cb);
+    self.checkRequiredOption(subcmd, opts, 'zk', cb);
 
     opts.mode = opts.mode.toLowerCase();
     if (['on', 'off'].indexOf(opts.mode) === -1) {
@@ -691,41 +659,25 @@ ManateeAdm.prototype.do_set_onwm = function (subcmd, opts, args, cb) {
         return cb();
     });
 };
-ManateeAdm.prototype.do_set_onwm.options = [ {
-    names: ['help', 'h'],
-    type: 'bool',
-    help: 'Show this help'
-}, {
-    names: ['shard', 's'],
-    type: 'string',
-    helpArg: 'SHARD',
-    help: 'The manatee shard',
-    default: process.env.SHARD
-}, {
-    names: ['mode', 'm'],
-    type: 'string',
-    helpArg: 'MODE',
-    help: 'Must be either "on" or "off"'
-}, {
-    names: ['ignorePrompts', 'y'],
-    type: 'bool',
-    helpArg: 'IGNORE_PROMPTS',
-    help: 'Set this to skip prompts (is dangerous) ',
-    default: false
-}, {
-    names: ['zk', 'z'],
-    type: 'string',
-    helpArg: 'ZOOKEEPER_URL',
-    help: 'The zookeeper connection string. e.g. 127.0.0.1:2181',
-    default: process.env.ZK_IPS
-}];
+ManateeAdm.prototype.do_set_onwm.options = [
+    commonOptions.help,
+    commonOptions.ignorePrompts,
+    {
+        names: ['mode', 'm'],
+        type: 'string',
+        helpArg: 'MODE',
+        help: 'Must be either "on" or "off"'
+    },
+    commonOptions.shard,
+    commonOptions.zk
+];
 ManateeAdm.prototype.do_set_onwm.help = (
     'Set one node write mode. \n' +
     '\n' +
     '!!! WARNING !!!\n' +
     'Do not set or disable one node write mode unless you are sure you\n' +
     'know what you\'re doing.  In order for one node write mode to be\n' +
-    'setd, the state must match what is in your configuration files for\n' +
+    'set, the state must match what is in your configuration files for\n' +
     'Manatee.\n' +
     '\n' +
     'Usage:\n' +
@@ -739,18 +691,14 @@ ManateeAdm.prototype.do_set_onwm.help = (
  */
 ManateeAdm.prototype.do_remove_deposed = function (subcmd, opts, args, cb) {
     var self = this;
-    if (opts.help) {
-        self.do_help('help', {}, [subcmd], cb);
-    }
 
-    if (!opts.shard) {
-        self.do_help('help', {}, [subcmd], cb);
-    }
+    self.checkHelpRequested(subcmd, opts, cb);
+    self.checkRequiredOption(subcmd, opts, 'shard', cb);
+    self.checkRequiredOption(subcmd, opts, 'zk', cb);
 
     if (!opts.ip && !opts.zonename) {
-        if (!opts.config) {
-            self.do_help('help', {}, [subcmd], cb);
-        }
+        self.checkRequiredOption(subcmd, opts, 'config', cb);
+
         try {
             var cfg = JSON.parse(fs.readFileSync(opts.config, 'utf8'));
             opts.zonename = cfg.zoneId;
@@ -768,39 +716,30 @@ ManateeAdm.prototype.do_remove_deposed = function (subcmd, opts, args, cb) {
         return cb();
     });
 };
-ManateeAdm.prototype.do_remove_deposed.options = [ {
-    names: ['help', 'h'],
-    type: 'bool',
-    help: 'Show this help'
-}, {
-    names: ['config', 'c'],
-    type: 'string',
-    helpArg: 'CONFIG',
-    help: 'The path to the manatee sitter config',
-    default: process.env.MANATEE_SITTER_CONFIG
-}, {
-    names: ['ip', 'i'],
-    type: 'string',
-    helpArg: 'IP',
-    help: 'The ip of the node to remove'
-}, {
-    names: ['zonename', 'n'],
-    type: 'string',
-    helpArg: 'ZONENAME',
-    help: 'The zonename of the node to remove'
-}, {
-    names: ['shard', 's'],
-    type: 'string',
-    helpArg: 'SHARD',
-    help: 'The manatee shard',
-    default: process.env.SHARD
-}, {
-    names: ['zk', 'z'],
-    type: 'string',
-    helpArg: 'ZOOKEEPER_URL',
-    help: 'The zookeeper connection string. e.g. 127.0.0.1:2181',
-    default: process.env.ZK_IPS
-}];
+ManateeAdm.prototype.do_remove_deposed.options = [
+    commonOptions.help,
+    {
+        names: ['config', 'c'],
+        type: 'string',
+        helpArg: 'CONFIG',
+        help: 'The path to the manatee sitter config',
+        default: process.env.MANATEE_SITTER_CONFIG
+    },
+    {
+        names: ['ip', 'i'],
+        type: 'string',
+        helpArg: 'IP',
+        help: 'The ip of the node to remove'
+    },
+    {
+        names: ['zonename', 'n'],
+        type: 'string',
+        helpArg: 'ZONENAME',
+        help: 'The zonename of the node to remove'
+    },
+    commonOptions.shard,
+    commonOptions.zk
+];
 ManateeAdm.prototype.do_remove_deposed.help = (
     'Moves a node out of the list of deposed manatees. \n' +
     '\n' +
