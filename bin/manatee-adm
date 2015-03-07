@@ -7,13 +7,14 @@
  */
 
 /*
- * Copyright (c) 2014, Joyent, Inc.
+ * Copyright (c) 2015, Joyent, Inc.
  */
 var adm = require('../lib/adm');
 var cmdln = require('cmdln');
 var fs = require('fs');
 var util = require('util');
 var path = require('path');
+var tab = require('tab');
 
 function ManateeAdm() {
     cmdln.Cmdln.call(this, {
@@ -332,44 +333,166 @@ ManateeAdm.prototype.do_check_lock.help = (
  */
 ManateeAdm.prototype.do_history = function (subcmd, opts, args, cb) {
     var self = this;
+    var histopts;
+
     if (opts.help) {
         self.do_help('help', {}, [subcmd], cb);
     }
 
     if (!opts.shard) {
+        console.error('-s / --shard is required');
         self.do_help('help', {}, [subcmd], cb);
     }
 
-    adm.history(opts, function (err, result) {
+    if (!opts.zk) {
+        console.error('-z / --zk is required');
+        self.do_help('help', {}, [subcmd], cb);
+    }
+
+    if (opts.sort != 'zkSeq' && opts.sort != 'time') {
+        console.error('-s / --sort must be one of "zkSeq" or "time"');
+        self.do_help('help', {}, [subcmd], cb);
+    }
+
+    histopts = {
+        'zk': opts.zk,
+        'shard': opts.shard,
+        'sortByTime': opts.sort == 'time'
+    };
+
+    adm.history(histopts, function (err, events) {
+        var rows, columns, hostwidth;
+
         if (err) {
             return cb(err);
         }
 
-        for (var i = 0; i < result.length; i++) {
-            console.log(JSON.stringify(result[i]));
+        if (opts.json) {
+            events.forEach(function (evt) {
+                console.log(JSON.stringify({
+                    'zkSeq': evt['zkSeq'],
+                    'time': evt['time'].toISOString(),
+                    'state': evt['state']
+                }));
+            });
+            cb();
+            return;
         }
+
+        hostwidth = opts.showFullHostnames ? 36 : 8;
+        columns = [ {
+            'label': 'TIME',
+            'width': 24
+        }, {
+            'label': 'G#',
+            'align': 'right',
+            'width': 2
+        }, {
+            'label': 'MODE',
+            'width': 5
+        }, {
+            'label': 'FRZ',
+            'width': 3
+        }, {
+            'label': 'PRIMARY',
+            'width': hostwidth
+        }, {
+            'label': 'SYNC',
+            'width': hostwidth
+        }, {
+            'label': 'ASYNC',
+            'width': hostwidth
+        }, {
+            'label': 'DEPOSED',
+            'width': hostwidth
+        } ];
+
+        if (opts.verbose) {
+            columns.push({ 'label': 'SUMMARY' });
+        }
+
+        rows = events.map(function (evt) {
+            var st, p, s, a, d;
+
+            st = evt['state'];
+            p = st['primary']['zoneId'];
+            s = st['sync'] !== null ? st['sync']['zoneId'] : '-';
+            a = st['async'].length === 0 ? '-' :
+                st['async'].map(function (async) {
+                    if (opts.showFullHostnames)
+                        return (async['zoneId']);
+                    return (async['zoneId'].substr(0, 8));
+                });
+            d = st['deposed'].length === 0 ? '-' :
+                st['deposed'].map(function (deposed) {
+                    if (opts.showFullHostnames)
+                        return (deposed['zoneId']);
+                    return (deposed['zoneId'].substr(0, 8));
+                });
+
+            if (!opts.showFullHostnames) {
+                p = p.substr(0, 8);
+                s = s.substr(0, 8);
+            }
+
+            return ({
+                'TIME': evt['time'].toISOString(),
+                'G#': st['generation'],
+                'MODE': st['oneNodeWriteMode'] ? 'singl' : 'multi',
+                'FRZ': st['freeze'] ? 'frz' : '-',
+                'PRIMARY': p,
+                'SYNC': s,
+                'ASYNC': a,
+                'DEPOSED': d,
+                'SUMMARY': evt['comment']
+            });
+        });
+
+        tab.emitTable({
+            'columns': columns,
+            'rows': rows
+        });
+
         return cb();
     });
 };
 ManateeAdm.prototype.do_history.options = [ {
+    names: ['showFullHostnames'],
+    type: 'bool',
+    help: 'Show full hostnames (instead of abbreviated versions)'
+}, {
     names: ['help', 'h'],
     type: 'bool',
     help: 'Show this help'
 }, {
+    names: ['json', 'j'],
+    type: 'bool',
+    help: 'Emit stable JSON output'
+}, {
     names: ['shard', 's'],
     type: 'string',
     helpArg: 'SHARD',
-    help: 'The manatee shard',
+    help: 'The manatee shard name',
     default: process.env.SHARD
+}, {
+    names: [ 'sort' ],
+    type: 'string',
+    helpArg: 'SORTFIELD',
+    help: 'Sort field (either "zkSeq" (default) or "time")',
+    default: 'zkSeq'
+}, {
+    names: [ 'verbose', 'v' ],
+    type: 'bool',
+    help: 'Show human-readable summary of each event'
 }, {
     names: ['zk', 'z'],
     type: 'string',
     helpArg: 'ZOOKEEPER_URL',
-    help: 'The zookeeper connection string. e.g. 127.0.0.1:2181',
+    help: 'The zookeeper connection string (e.g., 127.0.0.1:2181)',
     default: process.env.ZK_IPS
 }];
 ManateeAdm.prototype.do_history.help = (
-    'Displays histories for this shard. \n' +
+    'Displays history of cluster state changes for this shard. \n' +
     '\n' +
     'Usage:\n' +
     '    {{name}} history [OPTIONS]\n' +

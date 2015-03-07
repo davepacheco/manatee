@@ -164,29 +164,39 @@ documentation on migration for the appropriate use of this tool.
 
 Display the history of Manatee state transitions.  Each time a Manatee peer
 writes cluster state, a copy is put under `/history` in zookeeper.  This tool
-will order and display the
+displays these state transitions in human-readable form.
 
 -h, --help
     Displays a help message.
 
+-j, --json
+    Displays output in newline-separated JSON suitable for programmatic
+    consumption.
+
 -s, --shard shard
     Shard name.
+
+--showFullHostnames
+    Show the full hostname for each peer.  By default, hostnames are
+    abbreviated.
+
+-v, --verbose
+    Show human-readable summary for each state transition.
 
 -z, --zk Zookeeper url
     Zookeeper url (such as `10.0.1.1:2181`)
 
-The output is newline separated JSON where each line is the time and updated
-cluster state.  Note that history objects for Manatee 1.0 will also be included
-in the output.  The format for these objects is included:
+When using "-j", the output is newline separated JSON where each line is the
+time and updated cluster state.  Note that history objects for Manatee 1.0 will
+also be included in the output.
 
-Each line contains the following fields:
+For Manatee v2.0 events, each line contains the following fields:
 
-* `time` MS since epoch of the transition event.
-* `date` Time in UTC of the transition event.
+* `time` IS0 8601 timestamp of the event
 * `state` The cluster state object at that time.
-* `zkSeq` The zookeeper sequence number.
+* `zkSeq` The zookeeper sequence number for this event
 
-Each line for Manatee 1.0 changes contains the following fields.
+For Manatee v1.0 events, each line contains the following fields.
 
 * `time` MS since epoch of the transition event.
 * `date` Time in UTC of the transition event.
@@ -355,4 +365,4 @@ address or the zonename.
 ## COPYRIGHT
 
 
-Copyright (c) 2014 Joyent Inc., All rights reserverd.
+Copyright (c) 2015 Joyent Inc., All rights reserved.
