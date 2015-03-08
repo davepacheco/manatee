@@ -16,6 +16,7 @@ var fs = require('fs');
 var util = require('util');
 var path = require('path');
 var tab = require('tab');
+var sprintf = require('extsprintf').sprintf;
 var VError = require('verror');
 
 var commonOptions = {
@@ -179,14 +180,11 @@ ManateeAdm.prototype.do_pg_status = function (subcmd, opts, args, cb) {
     self.checkRequiredOption(subcmd, opts, 'shard', cb);
     self.checkRequiredOption(subcmd, opts, 'zk', cb);
 
-    adm.status(opts, function (err, status) {
-        if (!err && !status.hasOwnProperty(opts.shard)) {
-            err = new VError('shard not found: "%s"', opts.shard);
-        }
+    adm.loadClusterDetails(opts, function (err, status) {
         if (err) {
             return cb(err);
         } else {
-            pgStatus(status[opts.shard]);
+            emitClusterDetails(opts, status);
             return cb();
         }
     });
@@ -205,10 +203,145 @@ ManateeAdm.prototype.do_pg_status.help = (
     '{{options}}'
 );
 
-function pgStatus(pgstatus)
+function emitClusterDetails(opts, status)
 {
-        /* XXX NYI */
-        console.log(pgstatus);
+    var columns, rows;
+
+    columns = [ {
+        'label': 'ROLE',
+        'width': 7
+    }, {
+        'label': 'HOST',
+        'width': 8
+    }, {
+        'label': 'PG',
+        'align': 'left',
+        'width': 4
+    }, {
+        'label': 'REPL',
+        'width': 5
+    }, {
+        'label': 'SENT',
+        'width': 10
+    }, {
+        'label': 'WRITE',
+        'width': 10
+    }, {
+        'label': 'FLUSH',
+        'width': 10
+    }, {
+        'label': 'REPLAY',
+        'width': 10
+    }, {
+        'label': 'LAG',
+        'width': 6
+    } ];
+
+    rows = [];
+    rows.push(rowForPeer('primary', status.pgs_peers[status.pgs_primary]));
+    if (status.pgs_sync) {
+        rows.push(rowForPeer('sync', status.pgs_peers[status.pgs_sync]));
+    }
+
+    status.pgs_asyncs.forEach(function (id) {
+        rows.push(rowForPeer('async', status.pgs_peers[id]));
+    });
+
+    tab.emitTable({
+        'columns': columns,
+        'rows': rows
+    });
+
+    if (status.pgs_errors.length > 0) {
+        console.log('CRITICAL ERRORS:');
+        status.pgs_errors.forEach(function (err) {
+            console.log('    %s', err.message);
+        });
+    }
+
+    if (status.pgs_warnings.length > 0) {
+        console.log('WARNINGS:');
+        status.pgs_warnings.forEach(function (err) {
+            console.log('    %s', err.message);
+        });
+    }
+}
+
+function rowForPeer(role, peer)
+{
+    var rv = {};
+
+    rv['ROLE'] = role;
+    rv['HOST'] = peer.pgp_label;
+
+    if (peer.pgp_pgerr !== null) {
+        rv['PG'] = 'fail';
+        rv['REPL'] = '-';
+        rv['SENT'] = '-';
+        rv['WRITE'] = '-';
+        rv['FLUSH'] = '-';
+        rv['REPLAY'] = '-';
+        rv['LAG'] = '-';
+        return (rv);
+    }
+
+    rv['PG'] = 'ok';
+    rv['LAG'] = pgDuration(peer.pgp_lag);
+
+    if (peer.pgp_repl === null || !peer.pgp_repl.sync_state) {
+        rv['REPL'] = '-';
+        rv['SENT'] = '-';
+        rv['WRITE'] = '-';
+        rv['FLUSH'] = '-';
+        rv['REPLAY'] = '-';
+        return (rv);
+    }
+
+    rv['REPL'] = peer.pgp_repl.sync_state;
+    rv['SENT'] = peer.pgp_repl.sent_location;
+    rv['WRITE'] = peer.pgp_repl.write_location;
+    rv['FLUSH'] = peer.pgp_repl.flush_location;
+    rv['REPLAY'] = peer.pgp_repl.replay_location;
+    return (rv);
+}
+
+function pgDuration(lag)
+{
+    var minutes, seconds, key;
+
+    if (lag === null)
+        return ('-');
+
+    minutes = lag.minutes || 0;
+    seconds = lag.seconds || 0;
+    for (key in lag) {
+        switch (key) {
+        case 'days':
+            minutes += lag[key] * 24 * 60;
+            break;
+
+        case 'hours':
+            minutes += lag[key] * 60;
+            break;
+
+        case 'minutes':
+        case 'seconds':
+            break;
+
+        default:
+            /*
+             * The node-pg-types code that parses postgres intervals implies
+             * that it could produce keys for "months" or "years", but
+             * empirically it doesn't seem to.  That's a relief (and probably
+             * not accidental), since the number of minutes in these units is
+             * not constant.  If we get something we don't know about, indicate
+             * this to the user.
+             */
+            return ('?');
+        }
+    }
+
+    return (sprintf('%dm%02ds', minutes, seconds));
 }
 
 
