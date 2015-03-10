@@ -175,20 +175,35 @@ ManateeAdm.prototype.do_status.help = (
  */
 ManateeAdm.prototype.do_pg_status = function (subcmd, opts, args, cb) {
     var self = this;
+    var period, count;
 
     self.checkHelpRequested(subcmd, opts, cb);
     self.checkRequiredOption(subcmd, opts, 'shard', cb);
     self.checkRequiredOption(subcmd, opts, 'zk', cb);
 
-    adm.loadClusterDetails(opts, function (err, status) {
-        if (err) {
-            return cb(err);
-        } else {
-            emitClusterDetails(opts, status);
-            return cb();
+    if (args.length > 2) {
+        self.usage('unexpected arguments: ' + args.slice(2), subcmd, cb);
+    }
+
+    period = null;
+    count = null;
+    if (args.length > 0) {
+        period = parseInt(args[0], 10);
+        if (isNaN(period) || period < 1) {
+            self.usage('invalid period: "' + args[0] + '"', subcmd, cb);
         }
-    });
+
+        if (args.length > 1) {
+            count = parseInt(args[1], 10);
+            if (isNaN(count) || count < 1) {
+                self.usage('invalid count: "' + args[1] + '"', subcmd, cb);
+            }
+        }
+    }
+
+    doPgStatusIter(opts, period, count, cb);
 };
+
 ManateeAdm.prototype.do_pg_status.options = [
     commonOptions.help,
     commonOptions.shard,
@@ -203,6 +218,35 @@ ManateeAdm.prototype.do_pg_status.help = (
     '{{options}}'
 );
 
+/*
+ * Executes "count" iterations of the "pg-status" command, once every "period"
+ * seconds, and invoke "cb" on completion.  If "count" is null and "period" is
+ * not null, repeat forever.  If "period" is null, don't repeat at all.  This
+ * mimics the behavior of the various *stat commands (e.g., mpstat(1M),
+ * prstat(1M), and the like).
+ */
+function doPgStatusIter(opts, period, count, cb)
+{
+    var self = this;
+
+    adm.loadClusterDetails(opts, function (err, status) {
+        if (err) {
+            console.error('%s: %s', self.arg0, err.message);
+        } else {
+            emitClusterDetails(opts, status);
+        }
+
+        if (period === null || count == 1)
+            return cb(err);
+
+        setTimeout(doPgStatusIter, period * 1000, opts, period, count - 1, cb);
+    });
+}
+
+/*
+ * Given a complete cluster status as returned by adm.loadClusterDetails(),
+ * print a human-readable, short summary of the state.
+ */
 function emitClusterDetails(opts, status)
 {
     var columns, rows;
@@ -267,6 +311,9 @@ function emitClusterDetails(opts, status)
     }
 }
 
+/*
+ * Returns an object describing a single row emitted by by emitClusterDetails().
+ */
 function rowForPeer(role, peer)
 {
     var rv = {};
@@ -305,6 +352,12 @@ function rowForPeer(role, peer)
     return (rv);
 }
 
+/*
+ * Given a postgres time duration object "lag", which may have properties like
+ * "minutes", "seconds", and the like, return a human readable summary of the
+ * duration, like "87m12s".  If the object is null, returns "-".  If the time is
+ * not known, returns "?".
+ */
 function pgDuration(lag)
 {
     var minutes, seconds, key;
