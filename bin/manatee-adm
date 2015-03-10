@@ -32,6 +32,11 @@ var commonOptions = {
         help: 'Skip confirmation prompts (can be dangerous) ',
         default: false
     },
+    'json': {
+        names: ['json', 'j'],
+        type: 'bool',
+        help: 'Emit stable JSON output'
+    },
     'shard': {
         names: ['shard', 's'],
         type: 'string',
@@ -138,6 +143,8 @@ ManateeAdm.prototype.do_status = function (subcmd, opts, args, cb) {
     self.checkHelpRequested(subcmd, opts, cb);
     self.checkRequiredOption(subcmd, opts, 'zk', cb);
 
+    console.error('note: "%s status" is deprecated.  See "%s help pg-status".',
+        self.arg0, self.arg0);
     adm.status(opts, function (err, status) {
         if (err) {
             return cb(err);
@@ -161,7 +168,7 @@ ManateeAdm.prototype.do_status.options = [
     commonOptions.zk
 ];
 ManateeAdm.prototype.do_status.help = (
-    'Show status of a manatee shard. \n' +
+    '[LEGACY] Show status of a manatee shard. \n' +
     '\n' +
     'Usage:\n' +
     '    {{name}} status [OPTIONS]\n' +
@@ -206,6 +213,7 @@ ManateeAdm.prototype.do_pg_status = function (subcmd, opts, args, cb) {
 
 ManateeAdm.prototype.do_pg_status.options = [
     commonOptions.help,
+    commonOptions.json,
     commonOptions.shard,
     commonOptions.zk
 ];
@@ -232,6 +240,8 @@ function doPgStatusIter(opts, period, count, cb)
     adm.loadClusterDetails(opts, function (err, status) {
         if (err) {
             console.error('%s: %s', self.arg0, err.message);
+        } else if (opts.json) {
+            console.log(status.toJson());
         } else {
             emitClusterDetails(opts, status);
         }
@@ -297,17 +307,19 @@ function emitClusterDetails(opts, status)
     });
 
     if (status.pgs_errors.length > 0) {
-        console.log('CRITICAL ERRORS:');
+        console.log('\nCRITICAL ERRORS:');
         status.pgs_errors.forEach(function (err) {
             console.log('    %s', err.message);
         });
+        console.log('');
     }
 
     if (status.pgs_warnings.length > 0) {
-        console.log('WARNINGS:');
+        console.log('\nWARNINGS:');
         status.pgs_warnings.forEach(function (err) {
             console.log('    %s', err.message);
         });
+        console.log('');
     }
 }
 
@@ -669,11 +681,7 @@ ManateeAdm.prototype.do_history = function (subcmd, opts, args, cb) {
 };
 ManateeAdm.prototype.do_history.options = [
     commonOptions.help,
-    {
-        names: ['json', 'j'],
-        type: 'bool',
-        help: 'Emit stable JSON output'
-    },
+    commonOptions.json,
     commonOptions.shard,
     {
         names: ['showFullHostnames'],
