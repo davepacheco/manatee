@@ -19,6 +19,11 @@ var tab = require('tab');
 var sprintf = require('extsprintf').sprintf;
 var VError = require('verror');
 
+/*
+ * For consistency in option definitions, any options used by more than one
+ * subcommand should be defined here.  Subcommands using these options refer to
+ * this definition.
+ */
 var commonOptions = {
     'help': {
         names: ['help', 'h'],
@@ -71,7 +76,10 @@ ManateeAdm.prototype.usage = function (message, subcmd, cb)
     var self = this;
 
     console.error('%s: %s', self.arg0, message);
-    self.do_help('help', {}, [subcmd], cb);
+    self.do_help('help', {}, [subcmd], function () {
+        process.exit(2);
+    });
+
     assert.ok(false, 'internal error: did not expect do_help() to return');
 };
 
@@ -719,6 +727,7 @@ ManateeAdm.prototype.do_rebuild = function (subcmd, opts, args, cb) {
 
     self.checkHelpRequested(subcmd, opts, cb);
     self.checkRequiredOption(subcmd, opts, 'config', cb);
+    self.checkRequiredOption(subcmd, opts, 'zk', cb);
 
     try {
         var cfg = JSON.parse(fs.readFileSync(opts.config, 'utf8'));

@@ -13,6 +13,7 @@ JSL_CONF_NODE	 = ./tools/jsl.node.conf
 JSSTYLE		 = ./deps/jsstyle/jsstyle
 JSSTYLE_FLAGS	 = -f ./tools/jsstyle.conf
 NPM		 = npm
+NODE	 	 = node
 
 BASH_FILES	 = tools/mkdevsitters
 JS_FILES	:= \
@@ -35,6 +36,14 @@ include Makefile.smf.defs
 
 all:
 	$(NPM) install
+
+#
+# No doubt other tests under test/ should be included by this, but they're not
+# well enough documented at this point to incorporate.
+#
+test: all
+	$(NODE) test/manateeAdmUsage.test.js
+	@echo tests okay
 
 include Makefile.deps
 include Makefile.targ
