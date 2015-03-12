@@ -233,7 +233,7 @@ If this returns nothing, then no manatee peers are deployed.
 1. Log on to any manatee peer.
 1. Check the manatee state:
 ```
-[root@b35e12da (postgres) ~]$ manatee-adm state | json
+[root@b35e12da (postgres) ~]$ manatee-adm zk-state | json
 {
   "generation": 1,
   "primary": {
@@ -268,9 +268,9 @@ If this returns nothing, then no manatee peers are deployed.
 1. Log on to the mantaee sync and make sure it is running.
 1. Log on to asyncs and make sure they are running.
 1. You can check the set of manatee peers that are connected to zk with the
-   `# manatee-adm active` command:
+   `# manatee-adm zk-active` command:
 ```
-[root@b35e12da (postgres) ~]$ manatee-adm active | json
+[root@b35e12da (postgres) ~]$ manatee-adm zk-active | json
 {
   "10.77.77.7:5432:12345-0000000164": {
     "zoneId": "3dc65ac3-2977-40da-a948-3c72b9359884",

@@ -76,11 +76,11 @@ var subcmds = {
         'required': [ 'shard', 'zk' ],
         'destructive': false
     },
-    'state': {
+    'zk-state': {
         'required': [ 'shard', 'zk' ],
         'destructive': false
     },
-    'active': {
+    'zk-active': {
         'required': [ 'shard', 'zk' ],
         'destructive': false
     },
@@ -117,7 +117,7 @@ var subcmds = {
         'required': [ 'mode', 'shard', 'zk' ],
         'destructive': true
     },
-    'remove-deposed': {
+    'reap': {
         'required': [ 'shard', 'zk' ],
         'destructive': true
     }
@@ -129,25 +129,30 @@ var subcmds = {
  * environment using the same environment variables that "manatee-adm" also
  * interprets.
  *
- * If an entry in this object is non-null, then it should be the name of an
- * environment variable from which to pull the value of the corresponding
- * argument.  In this case, the test runner will run a given test twice: once
- * providing the argument to "manatee-adm" via the environment, and once
- * providing the argument via the command line.  The test runner will fail if
- * the corresponding environment variable is not set.
+ * If an entry in this object is non-null and not a boolean, then it should be
+ * the name of an environment variable from which to pull the value of the
+ * corresponding argument.  In this case, the test runner will run a given test
+ * twice: once providing the argument to "manatee-adm" via the environment, and
+ * once providing the argument via the command line.  The test runner will fail
+ * if the corresponding environment variable is not set.
  *
  * If an entry in this object is null, then that indicates that this is a
  * required argument only for destructive subcommands.  In that case, a _valid_
  * value is not needed and the test suite may make up any old value.
+ *
+ * If an entry in this object is true (not truthy, but actually "true"), then
+ * it's a boolean argument.
  */
 var requiredOptionEnvVars = {
     'shard': 'SHARD',
     'zk': 'ZK_IPS',
 
-    'path': null,
+    'help': true,
+
     'config': null,
-    'reason': null,
-    'mode': null
+    'mode': null,
+    'path': null,
+    'reason': null
 };
 
 var testsOk = 0;            /* count of tests that passed */
@@ -302,6 +307,17 @@ function genTestSubcmd(funcs, subcmd, subcmdinfo)
     });
 
     /*
+     * Invoke the "help" version of the command and make sure it works.
+     * Amusingly (but reasonably), node-cmdln does not supply this option for
+     * the "help" subcommand.
+     */
+    if (subcmd != 'help') {
+        funcs.push(function (callback) {
+            testSubcmdHelp(subcmd, subcmdinfo, callback);
+        });
+    }
+
+    /*
      * If the command is not destructive, test invoking it will all required
      * arguments.
      */
@@ -410,6 +426,28 @@ function testSubcmdMissingRequired(subcmd, subcmdinfo, required, useenv,
 }
 
 /*
+ * Test invoking subcommand "subcmd" with its --help option.
+ */
+function testSubcmdHelp(subcmd, subcmdinfo, callback)
+{
+    assertplus.string(subcmd, 'subcmd');
+    assertplus.object(subcmdinfo, 'subcmdinfo');
+
+    testStart('subcmd "%s" with --help', subcmd);
+    execChildForTest(subcmd, [ 'help' ], false, function (cmdresult) {
+        if (!cmdResultCompleted(cmdresult))
+            testFail('command timed out', cmdresult);
+        else if (!cmdResultExitOk(cmdresult))
+            testFail('command exited with non-zero status', cmdresult);
+        else if (!cmdResultHasUsage(cmdresult))
+            testFail('no usage message', cmdresult);
+        else
+            testPass();
+        callback();
+    });
+}
+
+/*
  * Test invoking subcommand "subcmd" (with configuration "subcmdinfo") with all
  * required argments.  The subcmd must not be destructive.
  */
@@ -489,6 +527,8 @@ function execChildForTest(subcmd, args, useenv, callback)
         if (envvar === null) {
             /* This means any value will do. */
             argvalue = 'bogusvalue';
+        } else if (envvar === true) {
+            argvalue = true;
         } else if (process.env[envvar]) {
             argvalue = process.env[envvar];
         } else {
@@ -498,6 +538,8 @@ function execChildForTest(subcmd, args, useenv, callback)
 
         if (useenv && envvar !== null) {
             cmdresult.env[envvar] = argvalue;
+        } else if (envvar === true) {
+            cmdresult.execArgs.push(sprintf('--%s', argname));
         } else {
             cmdresult.execArgs.push(sprintf('--%s=%s', argname, argvalue));
         }
