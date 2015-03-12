@@ -56,7 +56,29 @@ var commonOptions = {
 function ManateeAdm() {
     cmdln.Cmdln.call(this, {
         name: 'manatee-adm',
-        desc: 'Inspect and administer a cluster of Manatee peers'
+        desc: 'Inspect and administer a cluster of Manatee peers',
+        helpSubcmds: [
+            { 'group': 'STATUS COMMANDS' },
+            'pg-status',
+            'history',
+            { 'group': 'CLUSTER MAINTENANCE COMMANDS' },
+            'rebuild',
+            'freeze',
+            'unfreeze',
+            'reap',
+            { 'group': 'UPGRADE COMMANDS' },
+            'state-backfill',
+            { 'group': 'META COMMANDS' },
+            'help',
+            'version',
+            { 'group': 'ADVANCED (DEVELOPER) COMMANDS' },
+            'set-onwm',
+            'zk-state',
+            'zk-active',
+            { 'group': 'DEPRECATED AND INTERNAL COMMANDS' },
+            'check-lock',
+            'status'
+        ]
     });
 
     this.arg0 = 'manatee-adm';
@@ -71,11 +93,8 @@ ManateeAdm.prototype.usage = function (message, subcmd, cb)
     var self = this;
 
     console.error('%s: %s', self.arg0, message);
-    self.do_help('help', {}, [subcmd], function () {
-        process.exit(2);
-    });
-
-    assert.ok(false, 'internal error: did not expect do_help() to return');
+    console.error(this.helpFromSubcmd(subcmd));
+    process.exit(2);
 };
 
 /**
@@ -172,7 +191,7 @@ ManateeAdm.prototype.do_status.options = [
     commonOptions.zk
 ];
 ManateeAdm.prototype.do_status.help = (
-    '[LEGACY] Show status of this cluster. See pg-status instead.\n' +
+    'Show status of this cluster. See pg-status instead.\n' +
     '\n' +
     'Usage:\n' +
     '    {{name}} status [OPTIONS]\n' +
@@ -436,7 +455,7 @@ ManateeAdm.prototype.do_zk_state.options = [
     commonOptions.zk
 ];
 ManateeAdm.prototype.do_zk_state.help = ([
-    '[ADVANCED] Show the raw cluster state stored in ZooKeeper.',
+    'Show the raw cluster state stored in ZooKeeper.',
     '',
     'Usage:',
     '    {{name}} zk-state [OPTIONS]',
@@ -469,7 +488,7 @@ ManateeAdm.prototype.do_zk_active.options = [
     commonOptions.zk
 ];
 ManateeAdm.prototype.do_zk_active.help = ([
-    '[ADVANCED] Show the cluster peers connected to ZooKeeper.',
+    'Show the cluster peers connected to ZooKeeper.',
     '',
     'This may show multiple entries for the same peer when there are multiple',
     'ZooKeeper sessions for that peer (as when it has recently restarted).',
@@ -551,7 +570,7 @@ ManateeAdm.prototype.do_check_lock.options = [
     commonOptions.zk
 ];
 ManateeAdm.prototype.do_check_lock.help = (
-    '[INTERNAL] Check the status of a Manatee lock. \n' +
+    'Check the status of a Manatee lock. \n' +
     '\n' +
     'Usage:\n' +
     '    {{name}} check-lock [OPTIONS]\n' +
@@ -736,14 +755,14 @@ ManateeAdm.prototype.do_rebuild.options = [
     commonOptions.ignorePrompts,
     commonOptions.zk
 ];
-ManateeAdm.prototype.do_rebuild.help = (
-    'Rebuild this Manatee peer from the primary.\n' +
-    '\n' +
-    'Usage:\n' +
-    '    {{name}} rebuild [OPTIONS]\n' +
-    '\n' +
+ManateeAdm.prototype.do_rebuild.help = ([
+    'Rebuild this Manatee peer from the primary peer.' +
+    '',
+    'Usage:',
+    '    {{name}} rebuild [OPTIONS]',
+    '',
     '{{options}}'
-);
+].join('\n'));
 
 /**
  * Freezes a Manatee's cluster state so that it won't make any state
@@ -857,7 +876,7 @@ ManateeAdm.prototype.do_set_onwm.options = [
     commonOptions.zk
 ];
 ManateeAdm.prototype.do_set_onwm.help = ([
-    '[ADVANCED] Enable/disable singleton (one-node-write) mode.',
+    'Enable or disable singleton (one-node-write) mode.',
     '',
     'WARNING: This command must be used very carefully and only if you',
     'really know what you are doing.',

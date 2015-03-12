@@ -233,7 +233,7 @@ function genTestMissingSubcmds(funcs)
                 return;
             }
 
-            if (!cmdResultHasUsage(cmdresult)) {
+            if (!cmdResultHasUsage(cmdresult, 'stdout')) {
                 testFail('expected help message', cmdresult);
                 callback();
                 return;
@@ -253,7 +253,7 @@ function genTestMissingSubcmds(funcs)
                     return;
                 }
 
-                if (cmdsstart && !cmdsend)
+                if (cmdsstart && !cmdsend && line.substr(0, 4) == '    ')
                     cmds.push(line.split(/\s+/)[1]);
             });
 
@@ -417,7 +417,7 @@ function testSubcmdMissingRequired(subcmd, subcmdinfo, required, useenv,
             testFail('command exited with wrong status', cmdresult);
         else if (!cmdResultMissingRequired(cmdresult, required))
             testFail('no message about missing arg', cmdresult);
-        else if (!cmdResultHasUsage(cmdresult))
+        else if (!cmdResultHasUsage(cmdresult, 'stderr'))
             testFail('no usage message', cmdresult);
         else
             testPass();
@@ -439,7 +439,7 @@ function testSubcmdHelp(subcmd, subcmdinfo, callback)
             testFail('command timed out', cmdresult);
         else if (!cmdResultExitOk(cmdresult))
             testFail('command exited with non-zero status', cmdresult);
-        else if (!cmdResultHasUsage(cmdresult))
+        else if (!cmdResultHasUsage(cmdresult, 'stdout'))
             testFail('no usage message', cmdresult);
         else
             testPass();
@@ -469,7 +469,8 @@ function testSubcmdOk(subcmd, subcmdinfo, useenv, callback)
             testFail('command timed out', cmdresult);
         else if (!cmdResultExitOk(cmdresult))
             testFail('command did not exit 0', cmdresult);
-        else if (subcmd != 'help' && cmdResultHasUsage(cmdresult))
+        else if (subcmd != 'help' && (cmdResultHasUsage(cmdresult, 'stdout') ||
+            cmdResultHasUsage(cmdresult, 'stderr')))
             testFail('found usage message', cmdresult);
         else
             testPass();
@@ -616,14 +617,13 @@ function cmdResultMissingRequired(cmdresult, required)
  * Returns true iff the command (executed with execChildForTest) produced a
  * usage message.
  */
-function cmdResultHasUsage(cmdresult)
+function cmdResultHasUsage(cmdresult, whichstream)
 {
-    /*
-     * It's regrettable that this output goes to stdout rather than stderr.
-     * See node-cmdln#4.
-     */
-    return (/Usage:/.test(cmdresult.stdout) &&
-        /Options:/.test(cmdresult.stdout));
+    var stream;
+
+    assertplus.ok([ 'stdout', 'stderr' ].indexOf(whichstream) != -1);
+    stream = whichstream == 'stdout' ?  cmdresult.stdout : cmdresult.stderr;
+    return (/Usage:/.test(stream) && /Options:/.test(stream));
 }
 
 main();
