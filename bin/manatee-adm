@@ -58,6 +58,7 @@ function ManateeAdm() {
         name: 'manatee-adm',
         desc: 'Inspect and administer a cluster of Manatee peers',
         helpSubcmds: [
+	    { 'group': '' },
             { 'group': 'STATUS COMMANDS' },
             'history',
             'pg-status',
@@ -71,13 +72,14 @@ function ManateeAdm() {
             { 'group': 'META COMMANDS' },
             'help',
             'version',
-            { 'group': 'ADVANCED (DEVELOPER) COMMANDS' },
+            { 'group': 'DEVELOPER COMMANDS' },
             'set-onwm',
             'zk-state',
             'zk-active',
             { 'group': 'DEPRECATED AND INTERNAL COMMANDS' },
             'check-lock',
-            'status'
+            'status',
+	    { 'group': '' }
         ]
     });
 
@@ -147,14 +149,14 @@ ManateeAdm.prototype.do_version = function (subcmd, opts, args, cb) {
     return (cb(error));
 };
 ManateeAdm.prototype.do_version.options = [ commonOptions.help ];
-ManateeAdm.prototype.do_version.help = (
-    'Show the version of this Manatee client (from package.json).\n' +
-    '\n' +
-    'Usage:\n' +
-    '    {{name}} version [OPTIONS]\n' +
-    '\n' +
+ManateeAdm.prototype.do_version.help = ([
+    'Show the version of this Manatee client (from package.json).',
+    '',
+    'Usage:',
+    '    {{name}} version [OPTIONS]',
+    '',
     '{{options}}'
-);
+].join('\n'));
 
 /**
  * Display the current status of the Manatee cluster(s).
