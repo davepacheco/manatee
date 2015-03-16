@@ -58,7 +58,7 @@ function ManateeAdm() {
         name: 'manatee-adm',
         desc: 'Inspect and administer a cluster of Manatee peers',
         helpSubcmds: [
-	    { 'group': '' },
+            { 'group': '' },
             { 'group': 'STATUS COMMANDS' },
             'history',
             'pg-status',
@@ -79,7 +79,7 @@ function ManateeAdm() {
             { 'group': 'DEPRECATED AND INTERNAL COMMANDS' },
             'check-lock',
             'status',
-	    { 'group': '' }
+            { 'group': '' }
         ]
     });
 
