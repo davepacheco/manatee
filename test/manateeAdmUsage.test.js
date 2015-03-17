@@ -72,6 +72,18 @@ var subcmds = {
         'required': [ 'zk' ],
         'destructive': false
     },
+    'peers': {
+        'required': [ 'shard', 'zk' ],
+        'destructive': false
+    },
+    'show': {
+        'required': [ 'shard', 'zk' ],
+        'destructive': false
+    },
+    'verify': {
+        'required': [ 'shard', 'zk' ],
+        'destructive': false
+    },
     'pg-status': {
         'required': [ 'shard', 'zk' ],
         'destructive': false
@@ -248,7 +260,7 @@ function genTestMissingSubcmds(funcs)
                     return;
                 }
 
-                if (cmdsstart && line.trim().length === 0) {
+                if (cmdsstart && line.length > 0 && line.charAt(0) != ' ') {
                     cmdsend = true;
                     return;
                 }

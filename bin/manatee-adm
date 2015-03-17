@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// -*- mode: js -*-
+/* vim: set ft=javascript: */
 /*
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -9,22 +9,32 @@
 /*
  * Copyright (c) 2015, Joyent, Inc.
  */
+
 var adm = require('../lib/adm');
-var assert = require('assert');
+var assert = require('assert-plus');
 var cmdln = require('cmdln');
+var extsprintf = require('extsprintf');
 var fs = require('fs');
 var util = require('util');
 var path = require('path');
 var tab = require('tab');
-var sprintf = require('extsprintf').sprintf;
 var VError = require('verror');
+
+var sprintf = extsprintf.sprintf;
+var fprintf = extsprintf.fprintf;
 
 /*
  * For consistency in option definitions, any options used by more than one
  * subcommand should be defined here.  Subcommands using these options refer to
- * this definition.
+ * these definitions directly.
  */
 var commonOptions = {
+    'columns': {
+        names: ['columns', 'o'],
+        type: 'arrayOfString',
+        help: 'Columns to print',
+        helpArg: 'COLNAME[,...]'
+    },
     'help': {
         names: ['help', 'h'],
         type: 'bool',
@@ -37,12 +47,29 @@ var commonOptions = {
         help: 'Skip confirmation prompts (can be dangerous)',
         default: false
     },
+    'omitHeader': {
+        names: [ 'omitHeader', 'H' ],
+        type: 'bool',
+        help: 'Omit header row from output',
+        default: false
+    },
+    'role': {
+        names: [ 'role', 'r' ],
+        type: 'string',
+        help: 'Only show peers with role ROLE',
+        helpArg: 'ROLE'
+    },
     'shard': {
         names: ['shard', 's'],
         type: 'string',
         helpArg: 'SHARD',
         help: 'Name of the Manatee shard (cluster)',
         default: process.env.SHARD
+    },
+    'verbose': {
+        names: [ 'verbose', 'v' ],
+        type: 'bool',
+        help: 'Show human-readable summary of each event'
     },
     'zk': {
         names: ['zk', 'z'],
@@ -58,10 +85,13 @@ function ManateeAdm() {
         name: 'manatee-adm',
         desc: 'Inspect and administer a cluster of Manatee peers',
         helpSubcmds: [
-	    { 'group': '' },
+            { 'group': '' },
             { 'group': 'STATUS COMMANDS' },
-            'history',
+            'show',
+            'peers',
             'pg-status',
+            'history',
+            'verify',
             { 'group': 'CLUSTER MAINTENANCE COMMANDS' },
             'freeze',
             'unfreeze',
@@ -79,7 +109,7 @@ function ManateeAdm() {
             { 'group': 'DEPRECATED AND INTERNAL COMMANDS' },
             'check-lock',
             'status',
-	    { 'group': '' }
+            { 'group': '' }
         ]
     });
 
@@ -202,12 +232,146 @@ ManateeAdm.prototype.do_status.help = (
 );
 
 /**
+ * Show overall cluster information.
+ */
+ManateeAdm.prototype.do_show = function (subcmd, opts, args, cb) {
+    var self = this;
+    var loadoptions, identcolumns, pgcolumns;
+
+    self.checkHelpRequested(subcmd, opts, cb);
+    self.checkRequiredOption(subcmd, opts, 'shard', cb);
+    self.checkRequiredOption(subcmd, opts, 'zk', cb);
+
+    if (args.length > 0) {
+        self.usage('unexpected arguments: ' + args.slice(2), subcmd, cb);
+    }
+
+    if (opts.verbose) {
+        identcolumns = extractColumns(opts, peersDflColumns);
+    }
+
+    pgcolumns = extractColumns(opts, pgStatusDflColumns);
+
+    loadoptions = {
+        'zk': opts.zk,
+        'shard': opts.shard
+    };
+
+    adm.loadClusterDetails(loadoptions, function (err, cs) {
+        if (err) {
+            console.error('%s: %s', self.arg0, err.message);
+        } else {
+            console.log('zookeeper:   %s', opts.zk);
+            console.log('cluster:     %s', opts.shard);
+            console.log('generation:  %s (%s)',
+                cs.pgs_generation, cs.pgs_initwal);
+            console.log('mode:        %s',
+                cs.pgs_singleton ? 'singleton (one-node-write)' : 'normal');
+            console.log('freeze:      %s',
+                cs.pgs_frozen ?
+                sprintf('frozen at "%s": %s', cs.pgs_freeze_time,
+                    cs.pgs_freeze_reason) : 'not frozen');
+            console.log('');
+
+            if (opts.verbose) {
+                printClusterTable(opts, identcolumns, cs);
+                console.log('');
+            }
+
+            printClusterTable(opts, pgcolumns, cs);
+            printClusterIssues(cs, process.stdout);
+        }
+    });
+};
+ManateeAdm.prototype.do_show.options = [
+    commonOptions.help,
+    commonOptions.shard,
+    commonOptions.verbose,
+    commonOptions.zk
+];
+ManateeAdm.prototype.do_show.help = ([
+    'Show cluster summary information.',
+    '',
+    'Usage:',
+    '    {{name}} peers [OPTIONS]',
+    '',
+    '{{options}}'
+].join('\n'));
+
+
+
+/**
+ * List postgres peers.
+ */
+ManateeAdm.prototype.do_peers = function (subcmd, opts, args, cb) {
+    var self = this;
+    var error, columns, loadoptions;
+
+    self.checkHelpRequested(subcmd, opts, cb);
+    self.checkRequiredOption(subcmd, opts, 'shard', cb);
+    self.checkRequiredOption(subcmd, opts, 'zk', cb);
+
+    if (args.length > 0) {
+        self.usage('unexpected arguments: ' + args.slice(2), subcmd, cb);
+    }
+
+    error = validateRole(opts);
+    if (error instanceof Error) {
+        self.usage(error.message, subcmd, cb);
+    }
+
+    columns = extractColumns(opts, peersDflColumns);
+    if (columns instanceof Error) {
+        self.usage(columns.message, subcmd, cb);
+    }
+
+    columns.forEach(function (column) {
+        if (!column.noPg) {
+            self.usage(sprintf('column not available with this ' +
+                'subcommand: "%s"', column.label), subcmd, cb);
+        }
+    });
+
+    loadoptions = {
+        'zk': opts.zk,
+        'shard': opts.shard,
+        'skipPostgres': true
+    };
+    adm.loadClusterDetails(loadoptions, function (err, cs) {
+        if (err) {
+            console.error('%s: %s', self.arg0, err.message);
+        } else {
+            printClusterTable(opts, columns, cs);
+        }
+    });
+};
+
+ManateeAdm.prototype.do_peers.options = [
+    commonOptions.help,
+    commonOptions.columns,
+    commonOptions.omitHeader,
+    commonOptions.role,
+    commonOptions.shard,
+    commonOptions.zk
+];
+ManateeAdm.prototype.do_peers.help = (
+    'Show known peers in this cluster. \n' +
+    '\n' +
+    'Usage:\n' +
+    '    {{name}} peers [OPTIONS]\n' +
+    '\n' +
+    '{{options}}'
+);
+
+
+
+/**
  * Display the current postgres status for this cluster.  This is a more useful
  * display of the overall cluster status.
  */
 ManateeAdm.prototype.do_pg_status = function (subcmd, opts, args, cb) {
     var self = this;
-    var period, count;
+    var error, period, count, columns;
 
     self.checkHelpRequested(subcmd, opts, cb);
     self.checkRequiredOption(subcmd, opts, 'shard', cb);
@@ -215,6 +379,11 @@ ManateeAdm.prototype.do_pg_status = function (subcmd, opts, args, cb) {
 
     if (args.length > 2) {
         self.usage('unexpected arguments: ' + args.slice(2), subcmd, cb);
+    }
+
+    error = validateRole(opts);
+    if (error instanceof Error) {
+        self.usage(error.message, subcmd, cb);
     }
 
     period = null;
@@ -233,12 +402,26 @@ ManateeAdm.prototype.do_pg_status = function (subcmd, opts, args, cb) {
         }
     }
 
-    doPgStatusIter(opts, period, count, cb);
+    columns = extractColumns(opts,
+        opts.wide ? pgStatusWideDflColumns : pgStatusDflColumns);
+    if (columns instanceof Error) {
+        self.usage(columns.message, subcmd, cb);
+    }
+    doPgStatusIter(opts, columns, period, count, cb);
 };
 
 ManateeAdm.prototype.do_pg_status.options = [
     commonOptions.help,
+    commonOptions.columns,
+    commonOptions.omitHeader,
+    commonOptions.role,
     commonOptions.shard,
+    {
+        names: ['wide', 'w', 'cinematic'],
+        type: 'bool',
+        help: 'Show full peernames',
+        default: false
+    },
     commonOptions.zk
 ];
 ManateeAdm.prototype.do_pg_status.help = (
@@ -250,186 +433,55 @@ ManateeAdm.prototype.do_pg_status.help = (
     '{{options}}'
 );
 
-/*
- * Executes "count" iterations of the "pg-status" command, once every "period"
- * seconds, and invoke "cb" on completion.  If "count" is null and "period" is
- * not null, repeat forever.  If "period" is null, don't repeat at all.  This
- * mimics the behavior of the various *stat commands (e.g., mpstat(1M),
- * prstat(1M), and the like).
+
+/**
+ * Verify the state of the cluster.
  */
-function doPgStatusIter(opts, period, count, cb)
-{
+ManateeAdm.prototype.do_verify = function (subcmd, opts, args, cb) {
     var self = this;
+    var loadoptions;
 
-    adm.loadClusterDetails(opts, function (err, status) {
+    self.checkHelpRequested(subcmd, opts, cb);
+    self.checkRequiredOption(subcmd, opts, 'shard', cb);
+    self.checkRequiredOption(subcmd, opts, 'zk', cb);
+
+    if (args.length > 0) {
+        self.usage('unexpected arguments: ' + args.slice(2), subcmd, cb);
+    }
+
+    loadoptions = {
+        'zk': opts.zk,
+        'shard': opts.shard
+    };
+    adm.loadClusterDetails(loadoptions, function (err, cs) {
         if (err) {
-            console.error('%s: %s', self.arg0, err.message);
+            console.log('error: failed to fetch cluster state');
+            process.exit(1);
         } else {
-            emitClusterDetails(opts, status);
+            printClusterIssues(cs, process.stdout);
+            if ((cs.pgs_errors.length + cs.pgs_warnings.length) > 0)
+                process.exit(1);
+            if (opts.verbose)
+                console.log('all checks passed');
         }
-
-        if (period === null || count == 1)
-            return cb(err);
-
-        setTimeout(doPgStatusIter, period * 1000, opts, period, count - 1, cb);
     });
-}
+};
 
-/*
- * Given a complete cluster status as returned by adm.loadClusterDetails(),
- * print a human-readable, short summary of the state.
- */
-function emitClusterDetails(opts, status)
-{
-    var columns, rows;
+ManateeAdm.prototype.do_verify.options = [
+    commonOptions.help,
+    commonOptions.verbose,
+    commonOptions.shard,
+    commonOptions.zk
+];
+ManateeAdm.prototype.do_verify.help = ([
+    'Verify the health of the cluster.' +
+    '',
+    'Usage:',
+    '    {{name}} verify [OPTIONS]\n',
+    '',
+    '{{options}}'
+].join('\n'));
 
-    columns = [ {
-        'label': 'ROLE',
-        'width': 7
-    }, {
-        'label': 'HOST',
-        'width': 8
-    }, {
-        'label': 'PG',
-        'align': 'left',
-        'width': 4
-    }, {
-        'label': 'REPL',
-        'width': 5
-    }, {
-        'label': 'SENT',
-        'width': 10
-    }, {
-        'label': 'WRITE',
-        'width': 10
-    }, {
-        'label': 'FLUSH',
-        'width': 10
-    }, {
-        'label': 'REPLAY',
-        'width': 10
-    }, {
-        'label': 'LAG',
-        'width': 6
-    } ];
-
-    rows = [];
-    rows.push(rowForPeer('primary', status.pgs_peers[status.pgs_primary]));
-    if (status.pgs_sync) {
-        rows.push(rowForPeer('sync', status.pgs_peers[status.pgs_sync]));
-    }
-
-    status.pgs_asyncs.forEach(function (id) {
-        rows.push(rowForPeer('async', status.pgs_peers[id]));
-    });
-
-    tab.emitTable({
-        'columns': columns,
-        'rows': rows
-    });
-
-    if (status.pgs_errors.length > 0) {
-        console.log('\nCRITICAL ERRORS:');
-        status.pgs_errors.forEach(function (err) {
-            console.log('    %s', err.message);
-        });
-        console.log('');
-    }
-
-    if (status.pgs_warnings.length > 0) {
-        console.log('\nWARNINGS:');
-        status.pgs_warnings.forEach(function (err) {
-            console.log('    %s', err.message);
-        });
-        console.log('');
-    }
-}
-
-/*
- * Returns an object describing a single row emitted by by emitClusterDetails().
- */
-function rowForPeer(role, peer)
-{
-    var rv = {};
-
-    rv['ROLE'] = role;
-    rv['HOST'] = peer.pgp_label;
-
-    if (peer.pgp_pgerr !== null) {
-        rv['PG'] = 'fail';
-        rv['REPL'] = '-';
-        rv['SENT'] = '-';
-        rv['WRITE'] = '-';
-        rv['FLUSH'] = '-';
-        rv['REPLAY'] = '-';
-        rv['LAG'] = '-';
-        return (rv);
-    }
-
-    rv['PG'] = 'ok';
-    rv['LAG'] = pgDuration(peer.pgp_lag);
-
-    if (peer.pgp_repl === null || !peer.pgp_repl.sync_state) {
-        rv['REPL'] = '-';
-        rv['SENT'] = '-';
-        rv['WRITE'] = '-';
-        rv['FLUSH'] = '-';
-        rv['REPLAY'] = '-';
-        return (rv);
-    }
-
-    rv['REPL'] = peer.pgp_repl.sync_state;
-    rv['SENT'] = peer.pgp_repl.sent_location;
-    rv['WRITE'] = peer.pgp_repl.write_location;
-    rv['FLUSH'] = peer.pgp_repl.flush_location;
-    rv['REPLAY'] = peer.pgp_repl.replay_location;
-    return (rv);
-}
-
-/*
- * Given a postgres time duration object "lag", which may have properties like
- * "minutes", "seconds", and the like, return a human readable summary of the
- * duration, like "87m12s".  If the object is null, returns "-".  If the time is
- * not known, returns "?".
- */
-function pgDuration(lag)
-{
-    var minutes, seconds, key;
-
-    if (lag === null)
-        return ('-');
-
-    minutes = lag.minutes || 0;
-    seconds = lag.seconds || 0;
-    for (key in lag) {
-        switch (key) {
-        case 'days':
-            minutes += lag[key] * 24 * 60;
-            break;
-
-        case 'hours':
-            minutes += lag[key] * 60;
-            break;
-
-        case 'minutes':
-        case 'seconds':
-            break;
-
-        default:
-            /*
-             * The node-pg-types code that parses postgres intervals implies
-             * that it could produce keys for "months" or "years", but
-             * empirically it doesn't seem to.  That's a relief (and probably
-             * not accidental), since the number of minutes in these units is
-             * not constant.  If we get something we don't know about, indicate
-             * this to the user.
-             */
-            return ('?');
-        }
-    }
-
-    return (sprintf('%dm%02ds', minutes, seconds));
-}
 
 
 /**
@@ -706,11 +758,7 @@ ManateeAdm.prototype.do_history.options = [
         help: 'Sort field (either "zkSeq" (default) or "time")',
         default: 'zkSeq'
     },
-    {
-        names: [ 'verbose', 'v' ],
-        type: 'bool',
-        help: 'Show human-readable summary of each event'
-    },
+    commonOptions.verbose,
     commonOptions.zk
 ];
 ManateeAdm.prototype.do_history.help = ([
@@ -965,4 +1013,429 @@ ManateeAdm.prototype.do_reap.help = ([
     '{{options}}'
 ].join('\n'));
 
-cmdln.main(new ManateeAdm(), {showErrStack: true});
+/*
+ * Helper functions
+ *
+ * Several of the "manatee-adm" commands print out a table and allow users to
+ * select which columns to use.  We use common code to print these tables and
+ * the variables below to configure the available and default fields.
+ *
+ * Each column has a "name" (which is what the user would pass to the "-o"
+ * option to select that column) and a node-tab configuration (which includes
+ * the header label for that column, the width, alignment, and the like).
+ *
+ *     allColumns               maps column names to corresponding node-tab
+ *                              column configuration.  The additional property
+ *                              "noPg" is ignored by node-tab but used by the
+ *                              CLI to determine whether a given field is
+ *                              available without data from Postgres.
+ *
+ *     columnAliases            maps column names (aliases) to column names
+ *                              (actual underlying column)
+ *
+ *     peersDflColumns          list of default column names for
+ *                              "manatee-adm peers"
+ *
+ *     pgStatusDflColumns       list of default column names for
+ *                              "manatee-adm pg-status"
+ *
+ *     pgStatusWideDflColumns   list of default column names for
+ *                              "manatee-adm pg-status" when the "-w" ("wide")
+ *                              option is used.
+ *
+ * See the extractColumns() function for mapping between column names and column
+ * configurations.
+ */
+var allColumns = {
+    /*
+     * Columns available via both "manatee-adm peers" and "manatee-adm
+     * pg-status".  These columns come from the ZooKeeper state.
+     */
+    'peername': {
+        'label': 'PEERNAME',
+        'width': 36,
+        'noPg': true
+    },
+    'peerabbr': {
+        'label': 'PEER',
+        'width': 8,
+        'noPg': true
+    },
+    'role': {
+        'label': 'ROLE',
+        'width': 8,
+        'noPg': true
+    },
+    'ip': {
+        'label': 'IP',
+        'width': 16,
+        'noPg': true
+    },
+
+    /*
+     * Columns only available via "manatee-adm pg-status".  These come from
+     * querying Postgres or the sitter directly.
+     */
+    'pg-online': {
+        /* values: "ok" or "fail" */
+        'label': 'PG',
+        'width': 4
+    },
+
+    'pg-repl': {
+        /* values: "sync", "async", or "-" */
+        'label': 'REPL',
+        'width': 5
+    },
+
+    'pg-sent': {
+        /* WAL position */
+        'label': 'SENT',
+        'width': 10
+    },
+
+    'pg-write': {
+        /* WAL position */
+        'label': 'WRITE',
+        'width': 10
+    },
+
+    'pg-flush': {
+        /* WAL position */
+        'label': 'FLUSH',
+        'width': 10
+    },
+
+    'pg-replay': {
+        /* WAL position */
+        'label': 'REPLAY',
+        'width': 10
+    },
+
+    'pg-lag': {
+        /* time duration (e.g., "3m15s") */
+        'label': 'LAG',
+        'width': 6
+    }
+};
+
+var columnAliases = {
+    'zonename': 'peername',
+    'zoneabbr': 'peerabbr'
+};
+var peersDflColumns = [ 'role', 'peername', 'ip' ];
+var pgStatusDflColumns = [ 'role', 'peerabbr', 'pg-online', 'pg-repl',
+    'pg-sent', 'pg-write', 'pg-flush', 'pg-replay', 'pg-lag' ];
+var pgStatusWideDflColumns = [ 'role', 'peername', 'pg-online', 'pg-repl',
+    'pg-sent', 'pg-write', 'pg-flush', 'pg-replay', 'pg-lag' ];
+
+/*
+ * Validate column names and return column descriptors suitable for passing to
+ * node-tab.
+ *
+ *     opts             command line options.  This may contain:
+ *
+ *              columns         an array of strings denoting supported column
+ *                              names or aliases (see allColumns and
+ *                              columnAliases above)
+ *
+ *     dflcolnames      array of strings denoting the columns to use if
+ *                      "opts.columns" is not present
+ *
+ * On user error (e.g., unsupported column names in "opts.columns" or zero
+ * columns specified in "opts.columns"), returns an Error to the caller.  On
+ * programmer error (e.g., unsupported column names in "dflcolumns" or any use
+ * of a valid alias that has no associated command), throws an Error (which
+ * should not be caught).
+ */
+function extractColumns(opts, dflcolnames) {
+        var colnames, columns;
+        var error = null;
+
+        assert.object(opts, 'opts');
+        assert.optionalArrayOfString(opts.columns, 'opts.columns');
+        assert.arrayOfString(dflcolnames, 'dflcolnames');
+
+        /*
+         * Expand comma-separated lists in "opts.columns".
+         */
+        if (opts.columns) {
+            colnames = [];
+            opts.columns.forEach(function (optarg) {
+                /* JSSTYLED */
+                optarg.split(/,/).forEach(function (part) {
+                    if (part.length > 0)
+                        colnames.push(part);
+                });
+            });
+        } else {
+            colnames = dflcolnames;
+        }
+
+        columns = [];
+        colnames.forEach(function (rawcolname) {
+                var colname;
+
+                if (columnAliases.hasOwnProperty(rawcolname)) {
+                    colname = columnAliases[rawcolname];
+                    assert.ok(allColumns.hasOwnProperty(colname),
+                        'internal error: valid alias "' + rawcolname +
+                        '" references non-existent column "' + colname + '"');
+                } else {
+                    colname = rawcolname;
+                    if (!allColumns.hasOwnProperty(colname)) {
+                        error = new VError('unsupported column: "%s"', colname);
+                        return;
+                    }
+                }
+
+                    columns.push(allColumns[colname]);
+        });
+
+        if (error === null && columns.length === 0) {
+                error = new VError('no columns selected');
+        }
+
+        if (error !== null) {
+                if (opts.columns)
+                        return (error);
+                throw (new VError(error,
+                    'internal error: default column names'));
+        }
+
+        return (columns);
+}
+
+/*
+ * Print a table representation of the current cluster status.
+ *
+ *     opts             command line options.  This may contain:
+ *
+ *              columns         an array of strings denoting supported column
+ *                              names or aliases (see allColumns and
+ *                              columnAliases above)
+ *
+ *              omitHeader      optional boolean indicating whether the header
+ *                              row should be omitted from the output
+ *
+ *              role            optional filter on the role of each peer
+ *
+ *     dflcolumns       array of strings denoting the columns to use if
+ *                      "opts.columns" is not present
+ *
+ *     cs               see loadClusterState().
+ */
+function printClusterTable(opts, columns, cs) {
+        var rows, rolefilter;
+
+        assert.object(opts, 'opts');
+        assert.optionalBool(opts.omitHeader, 'opts.omitHeader');
+        assert.optionalString(opts.role, 'opts.role');
+        assert.arrayOfObject(columns, 'opts.columns');
+        assert.ok(columns.length > 0, 'non-empty opts.columns');
+        assert.object(cs, 'cs');
+
+        rows = [];
+        rolefilter = opts.role || null;
+
+        if (rolefilter === null || rolefilter == 'primary') {
+            rows.push(rowForPeer(
+                columns, 'primary', cs.pgs_peers[cs.pgs_primary]));
+        }
+
+        if ((rolefilter === null || rolefilter == 'sync') &&
+            cs.pgs_sync !== null) {
+            rows.push(rowForPeer(columns, 'sync', cs.pgs_peers[cs.pgs_sync]));
+        }
+
+        if (rolefilter === null || rolefilter == 'async') {
+            cs.pgs_asyncs.forEach(function (id) {
+                rows.push(rowForPeer(columns, 'async', cs.pgs_peers[id]));
+            });
+        }
+
+        if (rolefilter === null || rolefilter === 'deposed') {
+            cs.pgs_deposed.forEach(function (id) {
+                rows.push(rowForPeer(columns, 'deposed', cs.pgs_peers[id]));
+            });
+        }
+
+        tab.emitTable({
+            'columns': columns,
+            'rows': rows,
+            'omitHeader': opts.omitHeader
+        });
+}
+
+/*
+ * Returns an object describing a single peer, where the fields of the object
+ * correspond to the node-tab column names.
+ */
+function rowForPeer(columns, role, peer) {
+    var rv = {};
+
+    rv['ROLE'] = role;
+    rv['PEER'] = peer.pgp_label;
+    rv['PEERNAME'] = peer.pgp_ident.zoneId;
+    rv['IP'] = peer.pgp_ident.ip;
+
+    if (peer.pgp_pgerr !== null) {
+        rv['PG'] = 'fail';
+        rv['REPL'] = '-';
+        rv['SENT'] = '-';
+        rv['WRITE'] = '-';
+        rv['FLUSH'] = '-';
+        rv['REPLAY'] = '-';
+        rv['LAG'] = '-';
+        return (rv);
+    }
+
+    rv['PG'] = 'ok';
+    rv['LAG'] = pgDuration(peer.pgp_lag);
+
+    if (peer.pgp_repl === null || !peer.pgp_repl.sync_state) {
+        rv['REPL'] = '-';
+        rv['SENT'] = '-';
+        rv['WRITE'] = '-';
+        rv['FLUSH'] = '-';
+        rv['REPLAY'] = '-';
+        return (rv);
+    }
+
+    rv['REPL'] = peer.pgp_repl.sync_state;
+    rv['SENT'] = peer.pgp_repl.sent_location;
+    rv['WRITE'] = peer.pgp_repl.write_location;
+    rv['FLUSH'] = peer.pgp_repl.flush_location;
+    rv['REPLAY'] = peer.pgp_repl.replay_location;
+    return (rv);
+}
+
+/*
+ * Given a postgres time duration object "lag", which may have properties like
+ * "minutes", "seconds", and the like, return a human readable summary of the
+ * duration, like "87m12s".  If the object is null, returns "-".  If the time is
+ * not known, returns "?".
+ */
+function pgDuration(lag) {
+    var minutes, seconds, key;
+
+    if (lag === null)
+        return ('-');
+
+    minutes = lag.minutes || 0;
+    seconds = lag.seconds || 0;
+    for (key in lag) {
+        switch (key) {
+        case 'days':
+            minutes += lag[key] * 24 * 60;
+            break;
+
+        case 'hours':
+            minutes += lag[key] * 60;
+            break;
+
+        case 'minutes':
+        case 'seconds':
+            break;
+
+        default:
+            /*
+             * The node-pg-types code that parses postgres intervals implies
+             * that it could produce keys for "months" or "years", but
+             * empirically it doesn't seem to.  That's a relief (and probably
+             * not accidental), since the number of minutes in these units is
+             * not constant.  If we get something we don't know about, indicate
+             * this to the user.
+             */
+            return ('?');
+        }
+    }
+
+    return (sprintf('%dm%02ds', minutes, seconds));
+}
+
+/*
+ * Validates the "role" command-line option.  It may be unspecified or one of
+ * "primary", "sync", "async", or "deposed".
+ */
+function validateRole(opts)
+{
+    if (!opts.role)
+        return (null);
+
+    switch (opts.role) {
+    case 'primary':
+    case 'sync':
+    case 'async':
+    case 'deposed':
+        break;
+
+    default:
+        return (new VError('unsupported value for --role: "%s"', opts.role));
+    }
+
+    return (null);
+}
+
+/*
+ * Executes "count" iterations of the "pg-status" command, once every "period"
+ * seconds, and invokes "cb" on completion.  If "count" is null and "period" is
+ * not null, repeat forever.  If "period" is null, don't repeat at all.  This
+ * mimics the behavior of the various *stat commands (e.g., mpstat(1M),
+ * prstat(1M), and the like).
+ */
+function doPgStatusIter(opts, columns, period, count, cb) {
+    var self = this;
+
+    adm.loadClusterDetails(opts, function (err, cs) {
+        if (err) {
+            console.error('%s: %s', self.arg0, err.message);
+        } else {
+            printClusterTable(opts, columns, cs);
+            printClusterIssues(cs, process.stderr);
+        }
+
+        if (period === null || count == 1)
+            return cb(err);
+
+        setTimeout(doPgStatusIter, period * 1000, opts, columns,
+            period, count - 1, cb);
+    });
+}
+
+/*
+ * Prints messages about issues with the cluster.
+ */
+function printClusterIssues(cs, stream) {
+    cs.pgs_errors.forEach(function (error) {
+        fprintf(stream, 'error: %s', clusterIssueToMessage(error));
+    });
+    cs.pgs_warnings.forEach(function (error) {
+        fprintf(stream, 'warning: %s', clusterIssueToMessage(error));
+    });
+}
+
+/*
+ * Given an issue with the cluster (either a warning or error, but always an
+ * instance of Error), return a one-line summary message of the problem.
+ */
+function clusterIssueToMessage(error) {
+    var msg, nl;
+
+    assert.ok(error instanceof Error);
+
+    /*
+     * Our output is defined to be one message per line.  Messages are not
+     * supposed to have newlines in them.  But in case they do, truncate
+     * them.
+     */
+    msg = error.message;
+    nl = msg.indexOf('\n');
+    if (nl != -1) {
+        msg = msg.substr(0, nl) + '...';
+    }
+
+    return (msg);
+}
+
+cmdln.main(new ManateeAdm());
