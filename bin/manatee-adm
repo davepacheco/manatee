@@ -714,7 +714,21 @@ ManateeAdm.prototype.do_history = function (subcmd, opts, args, cb) {
         }
 
         rows = events.map(function (evt) {
-            var st, p, s, a, d;
+            var st, p, s, a, dep, d;
+
+            if (evt.action) {
+                return ({
+                    'TIME': evt.date.toISOString(),
+                    'G#': '-',
+                    'MODE': '-',
+                    'FRZ': '-',
+                    'PRIMARY': '-',
+                    'SYNC': '-',
+                    'ASYNC': '-',
+                    'DEPOSED': '-',
+                    'SUMMARY': 'v1.0 event'
+                });
+            }
 
             st = evt['state'];
             p = st['primary']['zoneId'];
@@ -723,8 +737,14 @@ ManateeAdm.prototype.do_history = function (subcmd, opts, args, cb) {
                 st['async'].map(function (async) {
                     return (async['zoneId'].substr(0, 8));
                 });
-            d = st['deposed'].length === 0 ? '-' :
-                st['deposed'].map(function (deposed) {
+
+            /*
+             * Early revisions of Manatee 2.0 did not necessarily have a
+             * "deposed" field, though it is required now.
+             */
+            dep = st.hasOwnProperty('deposed') ? st['deposed'] : [];
+            d = dep.length === 0 ? '-' :
+                dep.map(function (deposed) {
                     return (deposed['zoneId'].substr(0, 8));
                 });
 
