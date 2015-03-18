@@ -11,6 +11,7 @@
 #
 # Tools
 #
+CATEST		 = ./tools/catest
 JSL		 = ./deps/javascriptlint/build/install/jsl
 JSSTYLE		 = ./deps/jsstyle/jsstyle
 # md2man-roff can be found at <https://github.com/sunaku/md2man>.
@@ -59,7 +60,7 @@ all:
 # well enough documented at this point to incorporate.
 #
 test: all
-	$(NODE) test/manateeAdmUsage.test.js
+	$(CATEST) -a
 	@echo tests okay
 
 #

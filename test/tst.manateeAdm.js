@@ -49,6 +49,8 @@ function main()
      */
     if (process.argv.length > 2) {
         testcases = process.argv.slice(2);
+        console.error('only running test cases: %s',
+            testcases.join(', '));
     } else {
         testcases = null;
     }
