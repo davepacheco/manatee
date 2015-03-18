@@ -9,14 +9,14 @@
  */
 
 /*
- * manateeAdm.test.js: test invocations of the "manatee-adm" command
+ * manateeAdmUsage.test.js: test invocations of the "manatee-adm" command
  * Just run this test directly with Node, not with nodeunit.  All manatee-adm
  * subcommands should be covered by a test case below.  This program will fail
  * if it finds a subcommand with no test cases.
  */
 
 var assertplus = require('assert-plus');
-var child_process = require('child_process');
+var forkexec = require('forkexec');
 var path = require('path');
 var vasync = require('vasync');
 var VError = require('verror');
@@ -559,31 +559,15 @@ function execChildForTest(subcmd, args, useenv, callback)
     });
 
     execname = path.resolve(path.join(__dirname, '..', 'bin', 'manatee-adm'));
-    child_process.execFile(execname, cmdresult.execArgs, {
+    forkexec.forkExecWait({
+        'argv': [ execname ].concat(cmdresult.execArgs),
         'env': cmdresult.env,
-        'timeout': 10000,
-        'killSignal': 'SIGKILL'
-    }, function (error, stdout, stderr) {
-        if (error !== null) {
-            if (error.signal) {
-                cmdresult.err = new VError(
-                    'process terminated by signal "%s"', error.signal);
-            } else if (typeof (error.code) == 'number') {
-                cmdresult.code = error.code;
-            } else {
-                /*
-                 * It's deeply unfortunate that Node doesn't seem to have a
-                 * better way to distinguish this from the previous case.
-                 * Anyway, this is a programmer error.
-                 */
-                throw (new VError(error, 'failed to spawn child'));
-            }
-        } else {
-            cmdresult.code = 0;
-        }
-
-        cmdresult.stdout = stdout;
-        cmdresult.stderr = stderr;
+        'timeout': 10000
+    }, function (err, info) {
+        cmdresult.err = err;
+        cmdresult.code = info.status;
+        cmdresult.stdout = info.stdout;
+        cmdresult.stderr = info.stderr;
         callback(cmdresult);
     });
 }
@@ -594,7 +578,7 @@ function execChildForTest(subcmd, args, useenv, callback)
  */
 function cmdResultCompleted(cmdresult)
 {
-    return (cmdresult.err === null);
+    return (cmdresult.code !== null);
 }
 
 /*
