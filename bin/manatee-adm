@@ -267,10 +267,12 @@ ManateeAdm.prototype.do_show = function (subcmd, opts, args, cb) {
                 cs.pgs_generation, cs.pgs_initwal);
             console.log('mode:        %s',
                 cs.pgs_singleton ? 'singleton (one-node-write)' : 'normal');
-            console.log('freeze:      %s',
-                cs.pgs_frozen ?
-                sprintf('frozen at "%s": %s', cs.pgs_freeze_time,
-                    cs.pgs_freeze_reason) : 'not frozen');
+            if (cs.pgs_frozen) {
+                console.log('freeze:      frozen since %s', cs.pgs_freeze_time);
+                console.log('freeze info: %s', cs.pgs_freeze_reason);
+            } else {
+                console.log('freeze:      not frozen');
+            }
             console.log('');
 
             if (opts.verbose) {
@@ -279,7 +281,7 @@ ManateeAdm.prototype.do_show = function (subcmd, opts, args, cb) {
             }
 
             printClusterTable(opts, pgcolumns, cs);
-            printClusterIssues(cs, process.stdout);
+            printClusterIssues(cs, process.stdout, true);
         }
     });
 };
@@ -458,7 +460,7 @@ ManateeAdm.prototype.do_verify = function (subcmd, opts, args, cb) {
             console.log('error: failed to fetch cluster state');
             process.exit(1);
         } else {
-            printClusterIssues(cs, process.stdout);
+            printClusterIssues(cs, process.stdout, false);
             if ((cs.pgs_errors.length + cs.pgs_warnings.length) > 0)
                 process.exit(1);
             if (opts.verbose)
@@ -1392,7 +1394,7 @@ function doPgStatusIter(opts, columns, period, count, cb) {
             console.error('%s: %s', self.arg0, err.message);
         } else {
             printClusterTable(opts, columns, cs);
-            printClusterIssues(cs, process.stderr);
+            printClusterIssues(cs, process.stderr, true);
         }
 
         if (period === null || count == 1)
@@ -1406,12 +1408,17 @@ function doPgStatusIter(opts, columns, period, count, cb) {
 /*
  * Prints messages about issues with the cluster.
  */
-function printClusterIssues(cs, stream) {
+function printClusterIssues(cs, stream, leadingnl) {
+    if (leadingnl &&
+        (cs.pgs_errors.length > 0 || cs.pgs_warnings.length > 0)) {
+        fprintf(stream, '\n');
+    }
+
     cs.pgs_errors.forEach(function (error) {
-        fprintf(stream, 'error: %s', clusterIssueToMessage(error));
+        fprintf(stream, 'error: %s\n', clusterIssueToMessage(error));
     });
     cs.pgs_warnings.forEach(function (error) {
-        fprintf(stream, 'warning: %s', clusterIssueToMessage(error));
+        fprintf(stream, 'warning: %s\n', clusterIssueToMessage(error));
     });
 }
 

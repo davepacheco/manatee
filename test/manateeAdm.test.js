@@ -9,8 +9,16 @@
  */
 
 /*
- * manateeAdm.test.js: test specific of the "manatee-adm" command.
- * Just run this test directly with Node, not with nodeunit.
+ * manateeAdm.test.js: test specific invocations of the "manatee-adm" command.
+ * Run this test case with "catest".
+ *
+ * This test case runs through a number of possible cluster states (defined
+ * somewhat declaratively below) and runs "manatee-adm peers", "manatee-adm
+ * pg-status", "manatee-adm show", and "manatee-adm verify" with each of them.
+ * The stdout and stderr are written to this program's stdout (separately).
+ * When run under "catest", the output file will be compared against the
+ * expected output and the test case will fail if they don't match.  This test
+ * runner also explicitly checks the exit codes of each "manatee-adm" command.
  */
 
 var assertplus = require('assert-plus');
@@ -25,6 +33,126 @@ var testFileName = path.join(
     process.env['TMP'] || process.env['TMPDIR'] || '/var/tmp',
     path.basename(process.argv[1]) + '.' + process.pid);
 
+/*
+ * This guard checks that something doesn't erroneously end the pipeline early
+ * and allow Node to exit without having run all the tests.
+ */
+var done = false;
+process.on('exit', function () { assertplus.ok(done); });
+
+function main()
+{
+    var funcs, testcases;
+
+    /*
+     * If test cases were passed on the command line, then only run those.
+     */
+    if (process.argv.length > 2) {
+        testcases = process.argv.slice(2);
+    } else {
+        testcases = null;
+    }
+
+    /*
+     * Set up a vasync waterfall to run each command with each of the predefined
+     * cluster states.
+     */
+    funcs = [];
+    clusterStates.forEach(function (testcase) {
+        var testname, expected, cs;
+
+        testname = testcase[0];
+        expected = testcase[1];
+        cs = testcase[2];
+
+        if (testcases !== null && testcases.indexOf(testname) == -1)
+            return;
+
+        /*
+         * "peers", "pg-status", and "show" always exit 0.  "verify" exits
+         * non-zero if there were any problems.
+         */
+        funcs.push(runTestCase.bind(null, testname, cs, 0, [ 'peers' ]));
+        funcs.push(runTestCase.bind(null, testname, cs, 0, [ 'pg-status' ]));
+        funcs.push(runTestCase.bind(null, testname, cs, 0, [ 'show' ]));
+        funcs.push(runTestCase.bind(null, testname, cs, 0, [ 'show', '-v' ]));
+        funcs.push(runTestCase.bind(null, testname, cs,
+            expected, [ 'verify' ]));
+        funcs.push(runTestCase.bind(null, testname, cs,
+            expected, [ 'verify', '-v' ]));
+
+        if (testname != 'normalOk')
+            return;
+
+        /*
+         * Here we add some invocations that exercise the other flags available
+         * on these commands.  We don't need to run these for every cluster
+         * state.
+         */
+
+        /* Basic uses of -H/--omitHeader, -o/--columns, and -r/--role. */
+        funcs.push(runTestCase.bind(null, testname, cs, 0,
+            [ 'peers', '-H' ]));
+        funcs.push(runTestCase.bind(null, testname, cs, 0,
+            [ 'peers', '-H', '-o', 'role' ]));
+        funcs.push(runTestCase.bind(null, testname, cs, 0,
+            [ 'peers', '--omitHeader', '-o', 'role', '-o', 'peername' ]));
+        funcs.push(runTestCase.bind(null, testname, cs, 0,
+            [ 'peers', '--columns', 'role', '-o', 'peername,ip' ]));
+        funcs.push(runTestCase.bind(null, testname, cs, 0,
+            [ 'peers', '--role=primary' ]));
+        funcs.push(runTestCase.bind(null, testname, cs, 0,
+            [ 'peers', '-H', '-o', 'ip', '-r', 'sync' ]));
+
+        /* Same test cases for "pg-status". */
+        funcs.push(runTestCase.bind(null, testname, cs, 0,
+            [ 'pg-status', '-H' ]));
+        funcs.push(runTestCase.bind(null, testname, cs, 0,
+            [ 'pg-status', '-H', '-o', 'role' ]));
+        funcs.push(runTestCase.bind(null, testname, cs, 0,
+            [ 'pg-status', '--omitHeader', '-o', 'role', '-o', 'peername' ]));
+        funcs.push(runTestCase.bind(null, testname, cs, 0,
+            [ 'pg-status', '--columns', 'role', '-o', 'peername,ip' ]));
+        funcs.push(runTestCase.bind(null, testname, cs, 0,
+            [ 'pg-status', '--role=primary' ]));
+        funcs.push(runTestCase.bind(null, testname, cs, 0,
+            [ 'pg-status', '-H', '-o', 'ip', '-r', 'sync' ]));
+
+        /* Attempting to access pg fields from "peers" should fail. */
+        funcs.push(runTestCase.bind(null, testname, cs, 2,
+            [ 'peers', '-o', 'pg-sent' ]));
+
+        /* Attempting to access bogus fields from both commands should fail. */
+        funcs.push(runTestCase.bind(null, testname, cs, 2,
+            [ 'peers', '-o', 'badcolumn' ]));
+        funcs.push(runTestCase.bind(null, testname, cs, 2,
+            [ 'pg-status', '-o', 'badcolumn' ]));
+
+        /* Run "pg-status" a couple of times. */
+        funcs.push(runTestCase.bind(null, testname, cs, 0,
+            [ 'pg-status', '1', '2' ]));
+
+        /* Run "pg-status" in cinematic mode. */
+        funcs.push(runTestCase.bind(null, testname, cs, 0,
+            [ 'pg-status', '-w' ]));
+    });
+
+    console.error('using tmpfile: "%s"', testFileName);
+    vasync.waterfall(funcs, function (err) {
+        if (err) {
+            console.error('error: %s', err.message);
+            process.exit(1);
+        }
+
+        done = true;
+        console.log('TEST PASSED');
+    });
+}
+
+/*
+ * Helper class for generating valid (but possibly broken) cluster states.
+ * See addPeer().
+ */
 function MockState() {
     this.pgs_peers = {};
     this.pgs_generation = 3;
@@ -44,8 +172,9 @@ function MockState() {
     this._ip_base = '10.0.0.';
 
     /*
-     * In order to get the same uuids each time we run this program, we hardcode
-     * them.
+     * In order to get the same uuids each time we run this program,
+     * we hardcode them.  By putting them inside this class, they're reset for
+     * each test case too.
      */
     this._uuids = [
         '301e2d2c-cd09-11e4-837d-13ea7132a060',
@@ -61,6 +190,23 @@ function MockState() {
     ];
 }
 
+/*
+ * addPeer(role, peerstatus, log): add a peer to the cluster state with role
+ * "role" ("primary, "sync", "async", or "deposed") and status "peerstatus",
+ * which is one of:
+ *
+ *     down     act like we failed to contact postgres at all
+ *
+ *     no-repl  act like we contacted postgres, but replication was not
+ *              established
+ *
+ *     sync,    act like we contacted postgres and streaming replication
+ *     async    is established with sync_state = "sync" or "async",
+ *              respectively.
+ *
+ * If "lag" is non-null and the peer is an async, then "lag" should be a number
+ * of seconds of replication lag to report.
+ */
 MockState.prototype.addPeer = function (role, peerstatus, lag) {
     var ip, zoneId, id, pgUrl, backupUrl, pgerr, repl, lagobj;
     var peer;
@@ -74,8 +220,9 @@ MockState.prototype.addPeer = function (role, peerstatus, lag) {
         repl = null;
     } else if (peerstatus == 'no-repl') {
         pgerr = null;
-        repl = {};
+        repl = null;
     } else if (peerstatus == 'sync' || peerstatus == 'async') {
+        pgerr = null;
         repl = {
             /* We don't bother populating fields that aren't used here. */
             'state': 'streaming',
@@ -98,15 +245,15 @@ MockState.prototype.addPeer = function (role, peerstatus, lag) {
         lagobj = null;
     }
 
+    /*
+     * Construct the new peer details.
+     */
     ip = this._ip_base + (++this._npeers);
     zoneId = this._uuids.shift();
     id = sprintf('%s:5432:12345-0000000001', ip);
     pgUrl = sprintf('tcp://postgres@%s:5432/postgres', ip);
     backupUrl = sprintf('http://%s:12345', ip);
 
-    /*
-     * Construct the new peer details.
-     */
     peer = {};
     peer.pgp_label = zoneId.substr(0, 8);
     peer.pgp_ident = {
@@ -146,14 +293,16 @@ MockState.prototype.addPeer = function (role, peerstatus, lag) {
     }
 };
 
+/*
+ * Finish hooking up any pieces of state that can only be done after all peers
+ * have been added.  Today, this only hooks up replication connections to
+ * downstream peers.
+ */
 MockState.prototype.finish = function ()
 {
     var self = this;
     var peers, i;
 
-    /*
-     * Hook up replication connections.
-     */
     peers = [ this.pgs_peers[this.pgs_primary] ];
     if (this.pgs_sync !== null) {
         peers.push(this.pgs_peers[this.pgs_sync]);
@@ -166,14 +315,17 @@ MockState.prototype.finish = function ()
     for (i = 0; i < peers.length - 1; i++) {
         if (peers[i].pgp_repl === null ||
             !peers[i].pgp_repl.hasOwnProperty('client_addr'))
-            break;
+            continue;
 
         peers[i].pgp_repl.client_addr = peers[i + 1].pgp_ident.ip;
     }
-
-    /* XXX use common code to compute warnings and errors */
 };
 
+/*
+ * Return a JSON representation of this state.  This is written to a temporary
+ * file, and then we override manatee-adm to use this simulated state rather
+ * than fetching it from ZooKeeper.
+ */
 MockState.prototype.toJson = function ()
 {
     var obj, prop;
@@ -198,29 +350,37 @@ MockState.prototype.toJson = function ()
  * trick the loadClusterDetails() interface in lib/adm.js to return these
  * instead of actually contacting any remote servers.
  */
-var clusterStates = {
-    'singletonOk': makeStateSingleton({}),
-    'singletonDown': makeStateSingleton({ 'primary': 'down' }),
+var clusterStates = [
+    /* "S" is the expected exit status of "manatee-adm verify" for this case. */
+    /* TEST CASE NAME         S  CLUSTER STATE */
+    [ 'singletonOk',          0, makeStateSingleton({}) ],
+    [ 'singletonDown',        1, makeStateSingleton({ 'primary': 'down' }) ],
 
-    'normalOk': makeStateNormal({}),
-    'normal2Peers': makeStateNormal({ 'asyncs': 0 }),
-    'normal5Peers': makeStateNormal({ 'asyncs': 3 }),
-    'normalDeposed': makeStateNormal({ 'deposed': 1 }),
-    'normal2Deposed': makeStateNormal({ 'deposed': 2 }),
-    'normal5Peers2deposed': makeStateNormal({
+    [ 'normalOk',             0, makeStateNormal({}) ],
+    [ 'normal2Peers',         1, makeStateNormal({ 'asyncs': 0 }) ],
+    [ 'normal5Peers',         0, makeStateNormal({ 'asyncs': 3 }) ],
+    [ 'normalDeposed',        1, makeStateNormal({ 'deposed': 1 }) ],
+    [ 'normal2Deposed',       1, makeStateNormal({ 'deposed': 2 }) ],
+    [ 'normal5Peers2deposed', 1, makeStateNormal({
         'asyncs': 3,
         'deposed': 2
-    }),
-    'normalPdown': makeStateNormal({ 'primary': 'down' }),
-    'normalPnorepl': makeStateNormal({ 'primary': 'no-repl' }),
-    'normalPasync': makeStateNormal({ 'sync': 'async' }),
-    'normalSdown': makeStateNormal({ 'sync': 'down' }),
-    'normalSnorepl': makeStateNormal({ 'sync': 'no-repl' }),
+    }) ],
+    [ 'normalPdown',          1, makeStateNormal({ 'primary': 'down' }) ],
+    [ 'normalPnorepl',        1, makeStateNormal({ 'primary': 'no-repl' }) ],
+    [ 'normalPasync',         1, makeStateNormal({ 'primary': 'async' }) ],
+    [ 'normalSdown',          1, makeStateNormal({ 'sync': 'down' }) ],
+    [ 'normalSnorepl',        1, makeStateNormal({ 'sync': 'no-repl' }) ],
 
-    'normalNoLag': makeStateNormal({ 'lag': 0 }),
-    'normalLargeLag': makeStateNormal({ 'lag': 86465 })
-};
+    [ 'normalNoLag',          0, makeStateNormal({ 'lag': 0 }) ],
+    [ 'normalLargeLag',       0, makeStateNormal({ 'lag': 86465 }) ]
+];
 
+/*
+ * Generate a singleton (one-node-write-mode) cluster state.
+ *
+ * options.primary is passed to addPeer() as "peerstatus".  The only cases that
+ * are appropriate here are "no-repl" (the default) and "down".
+ */
 function makeStateSingleton(options)
 {
     var state;
@@ -231,10 +391,33 @@ function makeStateSingleton(options)
     state = new MockState();
     state.pgs_singleton = true;
     state.addPeer('primary', options.primary || 'no-repl', 'none');
+
+    state.pgs_frozen = true;
+    state.pgs_freeze_reason = 'manatee setup: one node write mode';
+    state.pgs_freeze_time = new Date('2006-02-15').toISOString();
+
     state.finish();
     return (state);
 }
 
+/*
+ * Generate a normal (non-singleton) cluster state.
+ *
+ * By default, the cluster state has a working primary, sync, and async.  You
+ * can also specify "options":
+ *
+ *     asyncs       an integer number of async peers
+ *
+ *     deposed      an integer number of deposed peers
+ *
+ *     primary,     "peerstatus" for the primary or sync.  The defaults are
+ *     sync         "sync" and "async", respectively (which denote the status of
+ *                  these peers in a working cluster).  Either of these
+ *                  properties can have either of those two values, plus
+ *                  "no-repl" or "down".  See addPeer() above.
+ *
+ *     lag          an integer number of seconds to use for an async peer's lag
+ */
 function makeStateNormal(options)
 {
     var state, i;
@@ -262,18 +445,22 @@ function makeStateNormal(options)
     }
 
     for (i = 0; i < ndeposed; i++) {
-        state.addPeer('deposed', 'no-repl');
+        state.addPeer('deposed', 'down');
     }
 
     state.finish();
     return (state);
 }
 
-function runTestCase(testname, execArgs, callback)
+/*
+ * Run one of the "manatee-adm" commands on the given cluster state "cs" as part
+ * of test case "testname".  The command to use (and associated arguments) is
+ * specified by "execArgs", and the expected exit status is given by "expected".
+ */
+function runTestCase(testname, cs, expected, execArgs, callback)
 {
-    var cs, json, execname;
+    var json, execname;
 
-    cs = clusterStates[testname];
     json = cs.toJson();
     fs.writeFileSync(testFileName, json);
     execname = path.join(__dirname, '..', 'bin', 'manatee-adm');
@@ -282,71 +469,71 @@ function runTestCase(testname, execArgs, callback)
         'argv': [ execname ].concat(execArgs),
         'timeout': 5000,
         'env': {
-            'PATH': process.env['PATH'], /* for shebang */
+            /*
+             * This special flag tells "manatee-adm" to load the cluster state
+             * from this file rather than reaching out to a live Manatee
+             * cluster.
+             */
+            'MANATEE_ADM_TEST_STATE': testFileName,
+
+            /*
+             * manatee-adm requires that the SHARD and ZK_IPS arguments be
+             * provided, but they can have any value since we're overriding the
+             * cluster state anyway.
+             */
             'SHARD': 'UNUSED',
             'ZK_IPS': 'UNUSED',
-            'MANATEE_ADM_TEST_STATE': testFileName
+
+            /*
+             * PATH must be passed through because manatee-adm uses env(1) to
+             * locate node.
+             */
+            'PATH': process.env['PATH']
         }
     }, function (err, info) {
+        /*
+         * If we expected the command to exit with a non-zero status and it
+         * failed for exactly that reason, ignore the error.
+         */
+        if (err && expected !== 0 && info.status == expected)
+            err = null;
+
+        /*
+         * If the command failed for any other reason or with a different error
+         * code than expected, then bail out here.
+         */
         if (err) {
             console.error('manatee-adm exec failed: ', info);
             callback(err);
             return;
         }
 
-        /* XXX actually have catest check against correct values */
+        /*
+         * Given that we're going to succeed at this point, remove the temporary
+         * file before proceeding.
+         */
         fs.unlink(testFileName, function (warn) {
             if (warn) {
                 console.error('warning: failed to unlink "%s": %s',
-                    testFileName, err.message);
+                    testFileName, warn.message);
             }
 
+            /*
+             * We emit both stdout and stderr to our own stdout in a way that
+             * makes them distinguishable.  catest (the test runner) will
+             * compare this output to an expected output file and fail if they
+             * don't match.
+             */
             console.log('TEST CASE "%s": manatee-adm %s:', testname,
                 execArgs.join(' '));
-            console.log('-----------------------------');
+            console.log('--------- stdout ------------');
             process.stdout.write(info.stdout);
+            console.log('--------- stderr ------------');
+            process.stdout.write(info.stderr);
             console.log('-----------------------------');
             console.log('');
-            if (info.stderr.length > 0) {
-                callback(new VError('non-empty stderr: "%s"', info.stderr));
-            } else {
-                callback();
-            }
+            callback();
         });
-    });
-}
-
-function main()
-{
-    var testname, funcs;
-
-    funcs = [];
-    for (testname in clusterStates) {
-        funcs.push(runTestCase.bind(null, testname, [ 'peers' ]));
-        funcs.push(runTestCase.bind(null, testname, [ 'pg-status' ]));
-        funcs.push(runTestCase.bind(null, testname, [ 'show' ]));
-        funcs.push(runTestCase.bind(null, testname, [ 'show', '-v' ]));
-        funcs.push(runTestCase.bind(null, testname, [ 'verify' ]));
-        funcs.push(runTestCase.bind(null, testname, [ 'verify', '-v' ]));
-    }
-
-    /*
-     * XXX add test cases for:
-     *     -H, -o flags for "peers"
-     *     -H, -o flags for "pg-status"
-     *     should fail: -o with pg-specific field for "peers"
-     *     should fail: -o with invalid field for "peers"
-     *     should fail: -o with invalid field for "pg-status"
-     */
-
-    console.error('using tmpfile: "%s"', testFileName);
-    vasync.waterfall(funcs, function (err) {
-        if (err) {
-            console.error('error: %s', err.message);
-            process.exit(1);
-        }
-
-        console.log('TEST PASSED');
     });
 }
 
