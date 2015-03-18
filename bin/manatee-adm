@@ -1445,4 +1445,16 @@ function clusterIssueToMessage(error) {
     return (msg);
 }
 
+
+/*
+ * If we get EPIPE on stdout, ignore the error and exit immediately.
+ */
+process.stdout.on('error', function (err) {
+    if (err.code == 'EPIPE') {
+        process.exit(0);
+    }
+
+    throw (err);
+});
+
 cmdln.main(new ManateeAdm());
