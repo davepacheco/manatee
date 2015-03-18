@@ -35,6 +35,13 @@ var commonOptions = {
         help: 'Columns to print',
         helpArg: 'COLNAME[,...]'
     },
+    'config': {
+        names: ['config', 'c'],
+        type: 'string',
+        helpArg: 'CONFIG',
+        help: 'The path to the Manatee sitter config',
+        default: process.env.MANATEE_SITTER_CONFIG
+    },
     'help': {
         names: ['help', 'h'],
         type: 'bool',
@@ -69,7 +76,7 @@ var commonOptions = {
     'verbose': {
         names: [ 'verbose', 'v' ],
         type: 'bool',
-        help: 'Show human-readable summary of each event'
+        help: 'Enable verbose output'
     },
     'zk': {
         names: ['zk', 'z'],
@@ -295,7 +302,7 @@ ManateeAdm.prototype.do_show.help = ([
     'Show cluster summary information.',
     '',
     'Usage:',
-    '    {{name}} peers [OPTIONS]',
+    '    {{name}} show [OPTIONS]',
     '',
     '{{options}}'
 ].join('\n'));
@@ -797,13 +804,7 @@ ManateeAdm.prototype.do_rebuild = function (subcmd, opts, args, cb) {
 };
 ManateeAdm.prototype.do_rebuild.options = [
     commonOptions.help,
-    {
-        names: ['config', 'c'],
-        type: 'string',
-        helpArg: 'CONFIG',
-        help: 'The path to the Manatee sitter config to list',
-        default: process.env.MANATEE_SITTER_CONFIG
-    },
+    commonOptions.config,
     commonOptions.ignorePrompts,
     commonOptions.zk
 ];
@@ -971,13 +972,7 @@ ManateeAdm.prototype.do_reap = function (subcmd, opts, args, cb) {
 };
 ManateeAdm.prototype.do_reap.options = [
     commonOptions.help,
-    {
-        names: ['config', 'c'],
-        type: 'string',
-        helpArg: 'CONFIG',
-        help: 'The path to the Manatee sitter config',
-        default: process.env.MANATEE_SITTER_CONFIG
-    },
+    commonOptions.config,
     {
         names: ['ip', 'i'],
         type: 'string',
@@ -996,18 +991,10 @@ ManateeAdm.prototype.do_reap.options = [
 ManateeAdm.prototype.do_reap.help = ([
     'Removes a non-existent peer from the list of deposed peers.',
     '',
-    'This operation is rarely necessary. It is used when a peer is being',
-    'permanently removed from the cluster. This operation only applies to',
-    'deposed peers. That\'s because by definition the peer is no longer',
-    'present, and absent peers will either become deposed (if they were',
-    'primary when they disappeared) or will be removed automatically (if',
-    'they had any other role). Deposed peers are the only peers that cannot',
-    'be removed automatically because special action must be taken when they',
-    'rejoin the cluster.',
+    'This operation is rarely necessary. See the man page for details.',
     '',
-    'You can either use an IP address or a zonename to identify the peer to',
-    'reap. If a zonename or IP is not specified, this zone\'s zonename will',
-    'be used.',
+    'You can use either an IP address or a zonename to identify the peer to',
+    'reap. If neither is not specified, this zone\'s zonename will be used.',
     '',
     'Usage:',
     '    {{name}} reap [OPTIONS]\n' +

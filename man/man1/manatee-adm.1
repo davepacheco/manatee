@@ -3,181 +3,172 @@
 \-\- Administration tools for Manatee
 .SH SYNOPSIS
 .PP
-\fB\fCmanatee\-adm [OPTIONS] COMMAND [ARGS...]\fR
+\fB\fCmanatee\-adm COMMAND [OPTIONS...] [ARGS...]\fR
 .SH DESCRIPTION
 .PP
-The \fB\fCmanatee\-adm\fR command is used to administer a Manatee shard.
-.SH COMMANDS
-.SS version [\-h]
+The \fB\fCmanatee\-adm\fR command is used to inspect and administer a Manatee cluster.
 .PP
-Display the version of the software for this manatee peer.  It is taken directly
-from the package.json in the manatee.git repo.
-.SS status [\-hsl] \-z
+Most of the commands here require the following options to identify the
+ZooKeeper cluster and cluster name (shard name):
 .PP
-Display the status of the current manatee shard. By default, the status for
-every shard is returned.
+\-z, \-\-zk \fB\fCZK_IPS\fR (or environment variable \fB\fCZK_IPS\fR)
+    ZooKeeper connection string.  This should be a list of comma\-
+    separated IP:PORT pairs.  For example: \fB\fC10.0.1.1:2181,10.0.1.2:2181\fR\&.
 .PP
-\-h, \-\-help
-    Displays a help message.
+\-s, \-\-shard \fB\fCSHARD\fR (or environment variable \fB\fCSHARD\fR)
+    Cluster (shard) name.  manatee\-adm expects to find cluster state
+    at path /manatee/\fB\fCSHARD\fR in the ZooKeeper namespace.
 .PP
-\-l, \-\-legacyOrderMode
-    Disply the topology based on the order in \fB\fC/election\fR, as was the way the
-    topology was determined in Manatee 1.0.
-.PP
-\-s, \-\-shard shard
-    Display status for the specified shard only.
-.PP
-\-z, \-\-zk Zookeeper url
-    Zookeeper url (such as \fB\fC10.0.1.1:2181\fR)
-.PP
-The output is a JSON object which encapsulates the state of the Manatee shard.
-Each peer in the shard is denoted by its role in the shard, which will be
-either \fB\fCprimary\fR, \fB\fCsync\fR, or \fB\fCasync\fR\&. If there are greater than 3 peers in the
-shard, each additional peer will be denoted \fB\fCasyncn\fR, where n is a
-monotonically increasing integer starting at 1.
-.PP
-The "online" field indicates if postgres is currently running.
-.PP
-The output also indicates whether the topology is frozen for that shard as well
-as any deposed peers.  Deposed peers are displayed in a similar to how asyncs
-are displayed.
-.PP
-The \fB\fCrepl\fR field contains postgresql replication information of the next peer
-in the shard. On the primary, this would be the \fB\fCsync\fR peer, and on the \fB\fCsync\fR
-this would be the \fB\fCasync\fR peer.
-.PP
+\fBImportant note for programmatic users:\fP Except as noted below, the output
+format for this command is subject to change at any time.  The only subcommands
+whose output is considered committed are:
 .RS
-.nf
-"1.moray.emy\-10.joyent.us": {
-  "primary": {
-    "id": "172.27.10.242:5432:12345",
-    "zoneId": "31f40985\-9578\-48b1\-a92c\-062d1329008b",
-    "ip": "172.27.10.242",
-    "pgUrl": "tcp://postgres@172.27.10.242:5432/postgres",
-    "backupUrl": "http://172.27.10.242:12345",
-    "online": true,
-    "repl": {
-      "pid": 41435,
-      "usesysid": 10,
-      "usename": "postgres",
-      "application_name": "tcp://postgres@172.27.10.238:5432/postgres",
-      "client_addr": "172.27.10.238",
-      "client_hostname": "",
-      "client_port": 62784,
-      "backend_start": "2014\-08\-20T00:22:07.802Z",
-      "state": "streaming",
-      "sent_location": "0/177D7C0",
-      "write_location": "0/177D7C0",
-      "flush_location": "0/177D7C0",
-      "replay_location": "0/177D7C0",
-      "sync_priority": 1,
-      "sync_state": "sync"
-    }
-  },
-  "sync": {
-    "id": "172.27.10.238:5432:12345",
-    "zoneId": "5d5b386a\-29ff\-410b\-80ae\-a63f74ced656",
-    "ip": "172.27.10.238",
-    "pgUrl": "tcp://postgres@172.27.10.238:5432/postgres",
-    "backupUrl": "http://172.27.10.238:12345",
-    "online": true,
-    "repl": {
-      "pid": 41417,
-      "usesysid": 10,
-      "usename": "postgres",
-      "application_name": "tcp://postgres@172.27.10.254:5432/postgres",
-      "client_addr": "172.27.10.254",
-      "client_hostname": "",
-      "client_port": 36209,
-      "backend_start": "2014\-08\-20T00:22:02.350Z",
-      "state": "streaming",
-      "sent_location": "0/177D7C0",
-      "write_location": "0/177D7C0",
-      "flush_location": "0/177D7C0",
-      "replay_location": "0/177D7C0",
-      "sync_priority": 0,
-      "sync_state": "async"
-    }
-  },
-  "async": {
-    "id": "172.27.10.254:5432:12345",
-    "zoneId": "c4f07ca7\-7249\-463e\-b7e3\-e9e8b49b4535",
-    "ip": "172.27.10.254",
-    "pgUrl": "tcp://postgres@172.27.10.254:5432/postgres",
-    "backupUrl": "http://172.27.10.254:12345",
-    "online": true,
-    "repl": {},
-    "lag": {
-      "time_lag": null
-    }
-  }
-}
-.fi
+.IP \(bu 2
+\fB\fCmanatee\-adm peers\fR, only when used with the "\-o" option
+.IP \(bu 2
+\fB\fCmanatee\-adm pg\-status\fR, only when used with the "\-o" option
+.IP \(bu 2
+\fB\fCmanatee\-adm verify\fR, only when used without the "\-v" option
 .RE
-.SS state
 .PP
-Gets the cluster state object from zookeeper and display it.
+The output for any other commands may change at any time.  Documented
+subcommands, options, and arguments are committed, and you can use the exit
+status of the program to determine success or failure.
 .PP
-\-h, \-\-help
-    Displays a help message.
+Commands are divided into six groups:
+.RS
+.IP \(bu 2
+Meta commands: help, version
+.IP \(bu 2
+Status commands: show, peers, pg\-status, history, verify
+.IP \(bu 2
+Cluster maintenance commands: freeze, unfreeze, rebuild, reap
+.IP \(bu 2
+Upgrade commands: state\-backfill
+.IP \(bu 2
+Developer commands: set\-onwm, zk\-state, zk\-active
+.IP \(bu 2
+Deprecated and internal commands: check\-lock, status
+.RE
+.SH META COMMANDS
+.SS help
 .PP
-\-s, \-\-shard shard
-    Shard name.
+Show usage information for a given subcommand.
+.SS version
 .PP
-\-z, \-\-zk Zookeeper url
-    Zookeeper url (such as \fB\fC10.0.1.1:2181\fR)
+Show the version of this Manatee client.  In a typical deployment, you run
+"manatee\-adm" from a given peer, in which case this reports the version number
+for the peer's Manatee software as well.
+.SH STATUS COMMANDS
+.SS show [\-v | \-\-verbose]
 .PP
-This is the canonical object that all manatee peers use to configure themselves.
-.SS active
+Show basic information about the cluster, including the ZooKeeper IPs, shard
+name, current generation number, whether the cluster is frozen, whether the
+cluster is configured for singleton or normal mode, and the list of peers and
+their Postgres status (similar to "manatee\-adm pg\-status").
 .PP
-Gets the list of active manatee peers currently registered in zk.
-.PP
-\-h, \-\-help
-    Displays a help message.
-.PP
-\-s, \-\-shard shard
-    Shard name.
-.PP
-\-z, \-\-zk Zookeeper url
-    Zookeeper url (such as \fB\fC10.0.1.1:2181\fR)
-.SS state\-backfill
-.PP
-Migration tool for moving from Manatee 1.0 to 2.0.  Please see the manatee
-documentation on migration for the appropriate use of this tool.
-.PP
-\-h, \-\-help
-    Displays a help message.
-.PP
-\-s, \-\-shard shard
-    Shard name.
-.PP
-\-z, \-\-zk Zookeeper url
-    Zookeeper url (such as \fB\fC10.0.1.1:2181\fR)
-.SS history [OPTIONS...]
-.PP
-Display the history of Manatee state transitions.  Each time a Manatee peer
-writes cluster state, a copy is put under \fB\fC/history\fR in zookeeper.  This tool
-displays these state transitions in human\-readable form.
-.PP
-\-h, \-\-help
-    Displays a help message.
-.PP
-\-j, \-\-json
-    Displays output in newline\-separated JSON suitable for programmatic
-    consumption.
-.PP
-\-s, \-\-shard shard
-    Shard name.
-.PP
-\-\-showFullHostnames
-    Show the full hostname for each peer.  By default, hostnames are
-    abbreviated.
+If there are any issues with the cluster, they will also be reported (similar to
+"manatee\-adm verify").
 .PP
 \-v, \-\-verbose
-    Show human\-readable summary for each state transition.
+    Show identifying information about all peers (similar to
+    "manatee\-adm peers").
+.SS peers [\-H | \-\-omitHeader] [\-o | \-\-columns COLNAME[,...]] [\-r | \-\-role ROLE]
 .PP
-\-z, \-\-zk Zookeeper url
-    Zookeeper url (such as \fB\fC10.0.1.1:2181\fR)
+Show a table of basic information about peers assigned in the cluster (the
+primary, the sync, any asyncs, and any deposed peers).  Peers connected to the
+cluster but not assigned a role are not shown.
+.PP
+\-H, \-\-omitHeader
+    Do not print the header containing the column labels.
+.PP
+\-o, \-\-columns \fB\fCCOLNAME,...\fR
+    Only print the named columns.  See below for the list of column
+    names.
+.PP
+\-r, \-\-role \fB\fCROLE\fR
+    Only show peers with role ROLE (e.g., "primary")
+.PP
+Supported columns include:
+.RS
+.IP \(bu 2
+\fB\fCpeername\fR: the full name of each peer (usually a uuid)
+.IP \(bu 2
+\fB\fCpeerabbr\fR: the short name of each peer (usually the first 8 characters of the
+uuid)
+.IP \(bu 2
+\fB\fCrole\fR: the peer's role in the cluster ("primary", "sync", "async", or
+"deposed")
+.IP \(bu 2
+\fB\fCip\fR: the peer's reported IP address
+.RE
+.SS pg\-status [\-w | \-\-wide] [\-H | \-\-omitHeader] [\-o | \-\-columns COLNAME[,...]] [\-r | \-\-role ROLE]
+.PP
+Show a table of Postgres status information for assigned peers in the cluster.
+This is very similar to "manatee\-adm peers", but supports additional columns for
+showing Postgres status.
+.PP
+\-H, \-\-omitHeader
+    Do not print the header containing the column labels.
+.PP
+\-o, \-\-columns \fB\fCCOLNAME,...\fR
+    Only print the named columns.  See below for the list of column
+    names.
+.PP
+\-r, \-\-role \fB\fCROLE\fR
+    Only show peers with role ROLE (e.g., "primary")
+.PP
+\-w, \-\-wide
+    Use default columns except show full peernames instead of shortened
+    peernames.  This output may exceed 80 columns.
+.PP
+Supported columns include all the columns supported by "manatee\-adm peers",
+plus:
+.RS
+.IP \(bu 2
+\fB\fCpg\-online\fR (Postgres status): "ok" if Postgres on the specified peer was
+successfully contacted and "fail" otherwise
+.IP \(bu 2
+\fB\fCpg\-repl\fR (replication status): If replication is established from the given
+peer to a downstream peer, then this corresponds to the "sync_state" field in
+Postgres's "pg_stat_replication" view.
+.IP \(bu 2
+\fB\fCpg\-sent\fR: If downstream replication is established, this corresponds to the
+"sent_location" field in Postgres's "pg_stat_replication" view.
+.IP \(bu 2
+\fB\fCpg\-write\fR: If downstream replication is established, this corresponds to the
+"write_location" field in Postgres's "pg_stat_replication" view.
+.IP \(bu 2
+\fB\fCpg\-flush\fR: If downstream replication is established, this corresponds to the
+"flush_location" field in Postgres's "pg_stat_replication" view.
+.IP \(bu 2
+\fB\fCpg\-replay\fR: If downstream replication is established, this corresponds to the
+"replay_location" field in Postgres's "pg_stat_replication" view.
+.IP \(bu 2
+\fB\fCpg\-lag\fR: If upstream replication is established, this corresponds to the
+difference between now and "pg_last_xact_replay_timestamp()".  This is
+intended to be a measure of how far asynchronous replication is lagging, but
+it's only useful for that purpose if data is actually being written upstream.
+.RE
+.SS history [\-j | \-\-json] [\-s | \-\-sort SORTFIELD] [\-v | \-verbose]
+.PP
+Show the history of Manatee state transitions.  Each time a Manatee peer writes
+cluster state, a copy is put under /history in ZooKeeper.  This tool shows these
+state transitions in human\-readable form.
+.PP
+\-j, \-\-json
+    Show output in newline\-separated JSON suitable for programmatic
+    consumption.
+.PP
+\-s, \-\-sort \fB\fCSORTFIELD\fR
+    Sorts events by \fB\fCSORTFIELD\fR, which must be either "zkSeq" (the
+    default) or "time".  This is rarely useful, but can be important
+    in cases where the ZooKeeper sequence number does not match
+    chronological order (which generally indicates a serious bug or
+    misconfiguration).
+.PP
+\-v, \-\-verbose
+    Show a human\-readable summary for each state transition.
 .PP
 When using "\-j", the output is newline separated JSON where each line is the
 time and updated cluster state.  Note that history objects for Manatee 1.0 will
@@ -186,11 +177,11 @@ also be included in the output.
 For Manatee v2.0 events, each line contains the following fields:
 .RS
 .IP \(bu 2
-\fB\fCtime\fR IS0 8601 timestamp of the event
+\fB\fCtime\fR ISO 8601 timestamp of the event
 .IP \(bu 2
 \fB\fCstate\fR The cluster state object at that time.
 .IP \(bu 2
-\fB\fCzkSeq\fR The zookeeper sequence number for this event
+\fB\fCzkSeq\fR The ZooKeeper sequence number for this event
 .RE
 .PP
 For Manatee v1.0 events, each line contains the following fields.
@@ -223,137 +214,164 @@ the shard will be \fB\fCLeader\fR, and all other peers will be \fB\fCStandby\fR\
 .IP \(bu 2
 \fB\fCzkSeq\fR Internal tracker of the number of state transitions.
 .RE
-.SS rebuild [\-hz] \-c
+.SS verify [\-v | \-\-verbose]
 .PP
-Rebuild the current peer. In the event of this peer being unable to join the
-cluster due to being a deposed primary or Postgres log divergence, this command
-will attempt a rebuild. It will induce a full rebuild by receiving the full zfs
-snapshot from its leader.
+Fetches the full status of the cluster and diagnoses common issues.  Issues are
+divided into errors, which are critical and usually indicate that service is
+down, and warnings, which usually indicate that the cluster is providing service
+but administrative attention is still required.
 .PP
-\-h, \-\-help
-    Displays a help message.
+The output is one of these issues per line, prefixed with either "error:" or
+"warning:" depending on the severity of the issue.  The command exits 0 if there
+are no issues and exits non\-zero if there are any issues reported.
 .PP
-\-c, \-\-config manatee sitter config
-    Path to Manatee sitter config. (such as
-    \fB\fC/opt/smartdc/manatee/etc/sitter.cfg\fR)
+\-v, \-\-verbose
+    Explicitly report when there are no issues.  Normally, the command
+    outputs nothing when no issues were found.
+.SH CLUSTER MAINTENANCE COMMANDS
+.SS freeze (\-r | \-\-reason REASON)
 .PP
-\-z, \-\-zk Zookeeper url
-    Zookeeper url (such as \fB\fC10.0.1.1:2181\fR)
+Freezes the cluster so that no state transitions (e.g., takeover operations)
+will be carried out.  This is typically used for disruptive maintenance
+operations where the operator would prefer that the system not attempt to react
+to peer failures (at the possible expense of availability).  \fB\fCREASON\fR must be
+provided, but it's only a note for operators.  \fB\fCREASON\fR is shown by the
+"manatee\-adm show" command.
 .PP
-Use this tool carefully.  It should only be run if the primary is up and
-operational.
-.SS check\-lock [\-h] \-pz
-.PP
-Check the existence of a lock path in Zookeeper. Returns 1 if the lock exists,
-0 if it doesn't.
-.PP
-\-h, \-\-help
-    Displays a help message.
-.PP
-\-p, \-\-path lock path
-    Lock path in Zookeeper. (such as \fB\fC/my_special_lock\fR)
-.PP
-\-z, \-\-zk Zookeeper url
-    Zookeeper url (such as \fB\fC10.0.1.1:2181\fR)
-.SS freeze
-.PP
-This tool is for the times when an operator would like to "freeze" this shard so
-that no state transitions will be made.  When the cluster is frozen, the reason
-will be displayed when running \fB\fCmanatee\-adm status\fR:
-.PP
-\-h, \-\-help
-    Displays a help message.
-.PP
-\-r \-\-reason
-    The reason the operator is freezing this shard.  It is a free\-form string
-    that will be displayed when displaying shard status.
-.PP
-\-s, \-\-shard shard
-    Shard name.
-.PP
-\-z, \-\-zk Zookeeper url
-    Zookeeper url (such as \fB\fC10.0.1.1:2181\fR)
-.PP
-For example:
-.PP
-.RS
-.nf
-[root@b35e12da (postgres) ~]$ manatee\-adm freeze \-r 'By nate for CM\-129'
-Frozen.
-[root@b35e12da (postgres) ~]$ manatee\-adm status | json | head \-5
-{
-  "1.moray.coal.joyent.us": {
-    "__FROZEN__": "2014\-12\-10T18:20:35.758Z: By nate for CM\-129",
-    "primary": {
-      "id": "10.77.77.8:5432:12345",
-[root@b35e12da (postgres) ~]$
-.fi
-.RE
+\-r, \-\-reason \fB\fCREASON\fR
+    The reason the operator is freezing this shard.
 .SS unfreeze
 .PP
-Unfreezes the shard so that automatic topology changes are enabled.
+Unfreezes the shard so that takeover operations may be carried out in response
+to peer failures.  See "freeze" above.
+.SS rebuild [\-c | \-\-config CONFIG_FILE] [\-y | \-\-ignorePrompts]
 .PP
-\-h, \-\-help
-    Displays a help message.
+Rebuild a peer (typically a deposed peer).  In the event that this peer is
+unable to join the cluster (usually due to being a deposed peer, but also as a
+result of unexpected Postgres xlog divergence), this command will attempt a full
+rebuild of the peer from the primary peer.  This can take a long time, depending
+on the size of the database.
 .PP
-\-s, \-\-shard shard
-    Shard name.
+Use this tool carefully.  This command completely removes the local copy of the
+database, so it should only be run when you're sure that there are enough copies
+elsewhere to satisfy your durability requirements and when you know that there
+is no important data only stored in this copy.  If the peer is actually deposed
+and the cluster is functioning, then Manatee guarantees this peer will not have
+any unique committed data.
 .PP
-\-z, \-\-zk Zookeeper url
-    Zookeeper url (such as \fB\fC10.0.1.1:2181\fR)
-.SS set\-onwm
-.PP
-Turns One Node Write Mode on and off.  One node write mode is a special mode for
-environments that do not contain important data.  It enables writes on the
-primary without syncronous replication to the sync.  It requires the state in
-zookeeper to match the state in your manatee configuration files so that it
-isn't accidentally enabled.  Use with extreme caution.
-.PP
-\-h, \-\-help
-    Displays a help message.
-.PP
-\-s, \-\-shard shard
-    Shard name.
-.PP
-\-m, \-\-mode on|off
-    Set one node write mode on or off.
+\-c, \-\-config \fB\fCCONFIG_FILE\fR (or environment variable \fB\fCMANATEE_SITTER_CONFIG\fR)
+    Path to Manatee sitter config file.  The default is
+    \fB\fC/opt/smartdc/manatee/etc/sitter.cfg\fR\&.
 .PP
 \-y, \-\-ignorePrompts
-    Sets one node write mode without confirmation.  Use with caution.
+    Skip confirmation prompts.
+.SS reap [\-c | \-\-config CONFIG_FILE] [\-i | \-\-ip IP] [\-n | \-\-zonename ZONENAME]
 .PP
-\-z, \-\-zk Zookeeper url
-    Zookeeper url (such as \fB\fC10.0.1.1:2181\fR)
-.SS remove\-deposed
+Removes a non\-existent peer from the list of deposed peers.
 .PP
-\s+2\fBWarning\fP\s-2: Removing from deposed is done as part of the \fB\fCrebuild\fR command.
-Use this tool without rebuilding could cause your shard to wedge.
+\fBThis is only to be used for peers that have been permanently decommissioned.
+If you want to bring a deposed peer back into service, use the "manatee\-adm
+rebuild" command.\fP
 .PP
-When a primary fails and the sync takes over as primary, the old primary is
-moved into a "deposed" state.  Operators should normally rebuild a node, but in
-certain circumstances this will not be possible (for example, if that peer was
-deprovisioned).  This will remove a peer from the list of deposed peers.
+This operation is rarely necessary.  It is only used when the primary fails in a
+way that will never be recovered (e.g, if the physical system has failed
+catastrophically and permanently).  As part of normal cluster operations, such a
+peer will become deposed, and the cluster will wait for an operator to rebuild
+that peer (see "manatee\-adm rebuild").  But if the peer is permanently gone,
+that will never happen.  This command simply removes the peer from the deposed
+list.
 .PP
-By default will remove the current node.  Otherwise, pass in either the ip
-address or the zonename.
+This operation only applies to deposed peers, since other peers are
+automatically removed from the cluster when they're absent.  Deposed peers are
+the only peers which remain in the cluster state when they're absent.  This is
+an important safety feature, since deposed peers generally cannot rejoin the
+cluster successfully.  If you reap a peer that is not actually gone and it
+subsequently rejoins the cluster, subsequent replication to that peer may fail
+and the cluster may be unable to maintain service when all peers ahead of that
+peer have failed.
 .PP
-\-h, \-\-help
-    Displays a help message.
+You can either use an IP address or a zonename to identify the peer to reap. If
+neither a zonename nor an IP address is specified, the current zone's zonename
+will be used.
 .PP
-\-c, \-\-config manatee sitter config
-    Path to Manatee sitter config. (such as
-    \fB\fC/opt/smartdc/manatee/etc/sitter.cfg\fR)
+\-c, \-\-config \fB\fCCONFIG_FILE\fR (or environment variable \fB\fCMANATEE_SITTER_CONFIG\fR)
+    Path to Manatee sitter config file.  The default is
+    \fB\fC/opt/smartdc/manatee/etc/sitter.cfg\fR\&.
 .PP
-\-i, \-\-ip
-    The ip address of the peer to remove.  Can be used in place of the Zonename.
+\-i, \-\-ip \fB\fCIP\fR
+    The IP address of the peer to remove.
 .PP
-\-n, \-\-zonename
-    The zonename of the peer to remove.  Can be used in place of the ip address.
+\-n, \-\-zonename \fB\fCZONENAME\fR
+    The zonename of the peer to remove.
+.SH UPGRADE COMMANDS
+.SS state\-backfill
 .PP
-\-s, \-\-shard shard
-    Shard name.
+Migration tool for moving from Manatee 1.0 to 2.0.  Please see the Manatee
+documentation on migration for the appropriate use of this tool.
+.SH DEVELOPER COMMANDS
 .PP
-\-z, \-\-zk Zookeeper url
-    Zookeeper url (such as \fB\fC10.0.1.1:2181\fR)
+These commands fetch or modify internal data structures and should only be used
+by developers or as part of documented procedures.
+.SS set\-onwm \-y | \-\-ignorePrompts
+\[la]-m | --mode (on | off)\[ra]
+.PP
+Toggles the singleton ("one\-node\-write") mode property of the cluster state.
+This is generally not required, and is not the normal way to enable
+one\-node\-write mode.  See the documentation for details, and use with caution.
+.PP
+\-m, \-\-mode on|off
+    Set one\-node\-write mode on or off.
+.PP
+\-y, \-\-ignorePrompts
+    Skip confirmation prompts.
+.SS zk\-state
+.PP
+Fetches the raw cluster state from ZooKeeper and show it.  This is the canonical
+object that all Manatee peers use to configure themselves.
+.SS zk\-active
+.PP
+Fetches the list of active Manatee peers currently connected to ZooKeeper.  This
+may include duplicates, since there's one object reported per active ZooKeeper
+session.
+.SH DEPRECATED AND INTERNAL COMMANDS
+.SS status [\-l | \-\-legacyOrderMode] [\-s | \-\-shard SHARD]
+.PP
+Show a JSON representation of the status of Manatee shards. By default, the
+status for every shard is returned.
+.PP
+This command is deprecated.  Operators should use the "pg\-status" command
+instead.  Programs should use the "verify" command instead.
+.PP
+\-l, \-\-legacyOrderMode
+    Show the topology based on Manatee v1.0 semantics, which is based
+    on node order in \fB\fC/election\fR in ZooKeeper rather than a carefully\-
+    managed cluster state.
+.PP
+\-s, \-\-shard \fB\fCSHARD\fR
+    Show status for the specified shard only.
+.PP
+The output encapsulates the state of the Manatee shard.  Each peer in the shard
+is denoted by its role in the shard, which will be either \fB\fCprimary\fR, \fB\fCsync\fR, or
+\fB\fCasync\fR\&. If there are greater than 3 peers in the shard, each additional peer
+will be denoted \fB\fCasyncN\fR, where N is an integer starting at 1.
+.PP
+The "online" field indicates if Postgres is currently running.
+.PP
+The output also indicates whether the topology is frozen for that shard and also
+lists any deposed peers.  Deposed peers are named similar to how asyncs are
+named.
+.PP
+The \fB\fCrepl\fR field contains Postgres replication information of the next peer
+in the shard. On the primary, this would be the \fB\fCsync\fR peer, and on the \fB\fCsync\fR
+this would be the \fB\fCasync\fR peer.
+.SS check\-lock (\-p | \-\-path LOCK_PATH)
+.PP
+Check the existence of a path in ZooKeeper, which is used as a boolean
+configuration flag.  Exits with status 1 if the lock exists and 0 if it does
+not.
+.PP
+\-p, \-\-path \fB\fCLOCK_PATH\fR
+    Lock path in ZooKeeper. (e.g., \fB\fC/my_special_lock\fR)
 .SH ENVIRONMENT
 .PP
 \fB\fCZK_IPS\fR
