@@ -161,7 +161,7 @@ ManateeAdm.prototype.checkHelpRequested = function (subcmd, opts, cb)
 
     if (opts.help) {
         self.do_help('help', {}, [subcmd], cb);
-        assert.ok(false, 'internal error: did not expect do_help() to return');
+        throw (new Error('internal error: did not expect do_help() to return'));
     }
 };
 
@@ -229,14 +229,14 @@ ManateeAdm.prototype.do_status.options = [
     commonOptions.shard,
     commonOptions.zk
 ];
-ManateeAdm.prototype.do_status.help = (
-    'Show status of this cluster. See pg-status instead.\n' +
-    '\n' +
-    'Usage:\n' +
-    '    {{name}} status [OPTIONS]\n' +
-    '\n' +
+ManateeAdm.prototype.do_status.help = ([
+    'Show status of this cluster. See pg-status instead.',
+    '',
+    'Usage:',
+    '    {{name}} status [OPTIONS]',
+    '',
     '{{options}}'
-);
+].join('\n'));
 
 /**
  * Show overall cluster information.
@@ -375,8 +375,7 @@ ManateeAdm.prototype.do_peers.help = (
 
 
 /**
- * Display the current postgres status for this cluster.  This is a more useful
- * display of the overall cluster status.
+ * Display the current postgres status for this cluster.
  */
 ManateeAdm.prototype.do_pg_status = function (subcmd, opts, args, cb) {
     var self = this;
@@ -483,7 +482,7 @@ ManateeAdm.prototype.do_verify.options = [
     commonOptions.zk
 ];
 ManateeAdm.prototype.do_verify.help = ([
-    'Verify the health of the cluster.' +
+    'Verify the health of the cluster.',
     '',
     'Usage:',
     '    {{name}} verify [OPTIONS]\n',
