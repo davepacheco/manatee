@@ -138,6 +138,36 @@ plus:
   intended to be a measure of how far asynchronous replication is lagging, but
   it's only useful for that purpose if data is actually being written upstream.
 
+**Example output**
+
+Here's a healthy cluster:
+
+    # manatee-adm pg-status
+    ROLE     PEER     PG   REPL  SENT       WRITE      FLUSH      REPLAY     LAG   
+    primary  09957297 ok   sync  0/79E8E0A0 0/79E8E0A0 0/79E8E0A0 0/79E8DCA0 -     
+    sync     a376df2b ok   async 0/79E8E0A0 0/79E8E0A0 0/79E8E0A0 0/79E8DCA0 -     
+    async    bb348824 ok   -     -          -          -          -          0m00s
+
+Here's a cluster that's experiencing non-critical issues:
+
+    # manatee-adm pg-status
+    ROLE     PEER     PG   REPL  SENT       WRITE      FLUSH      REPLAY     LAG   
+    primary  09957297 ok   sync  0/79E88D28 0/79E88D28 0/79E88D28 0/79E884B0 -     
+    sync     a376df2b ok   -     -          -          -          -          -     
+    async    bb348824 fail -     -          -          -          -          -     
+
+    warning: peer "a376df2b": downstream replication peer not connected
+
+Here's a cluster that's experiencing a critical issue that's affecting service:
+
+    # manatee-adm pg-status
+    ROLE     PEER     PG   REPL  SENT       WRITE      FLUSH      REPLAY     LAG   
+    primary  bb348824 fail -     -          -          -          -          -     
+    sync     09957297 ok   async 0/79DE6478 0/79DE6478 0/79DE6478 0/79DE6478 -     
+    async    a376df2b ok   -     -          -          -          -          0m33s 
+
+    error: cannot query postgres on primary: peer "bb348824": ECONNREFUSED
+    error: peer "bb348824": downstream replication peer not connected
 
 ### history [-j | --json] [-s | --sort SORTFIELD] [-v | -verbose]
 
@@ -158,6 +188,32 @@ state transitions in human-readable form.
 
 -v, --verbose
     Show a human-readable summary for each state transition.
+
+**Example output**
+
+    # manatee-adm history
+    TIME                     G# MODE  FRZ PRIMARY  SYNC     ASYNC    DEPOSED 
+    2015-03-12T22:14:08.681Z  1 multi -   bb348824 a376df2b -        -       
+    2015-03-12T22:14:24.594Z  1 multi -   bb348824 a376df2b 09957297 -       
+    2015-03-19T18:15:52.011Z  1 multi -   bb348824 a376df2b -        -       
+    2015-03-19T18:16:26.587Z  1 multi -   bb348824 a376df2b 09957297 -       
+    2015-03-19T18:18:16.024Z  2 multi -   bb348824 09957297 -        -       
+    2015-03-19T18:18:41.639Z  2 multi -   bb348824 09957297 a376df2b -       
+    2015-03-19T18:19:50.016Z  3 multi -   09957297 a376df2b -        bb348824
+    2015-03-19T18:21:29.033Z  3 multi -   09957297 a376df2b bb348824 -       
+
+or, with annotations:
+
+    # manatee-adm history -v
+    TIME                     G# MODE  FRZ PRIMARY  SYNC     ASYNC    DEPOSED  SUMMARY
+    2015-03-12T22:14:08.681Z  1 multi -   bb348824 a376df2b -        -        cluster setup for normal (multi-peer) mode
+    2015-03-12T22:14:24.594Z  1 multi -   bb348824 a376df2b 09957297 -        async "09957297" added
+    2015-03-19T18:15:52.011Z  1 multi -   bb348824 a376df2b -        -        async "09957297" removed
+    2015-03-19T18:16:26.587Z  1 multi -   bb348824 a376df2b 09957297 -        async "09957297" added
+    2015-03-19T18:18:16.024Z  2 multi -   bb348824 09957297 -        -        primary (bb348824) selected new sync (was a376df2b, now 09957297)
+    2015-03-19T18:18:41.639Z  2 multi -   bb348824 09957297 a376df2b -        async "a376df2b" added
+    2015-03-19T18:19:50.016Z  3 multi -   09957297 a376df2b -        bb348824 sync (09957297) took over as primary (from bb348824)
+    2015-03-19T18:21:29.033Z  3 multi -   09957297 a376df2b bb348824 -        async "bb348824" added, "bb348824" no longer deposed
 
 When using "-j", the output is newline separated JSON where each line is the
 time and updated cluster state.  Note that history objects for Manatee 1.0 will
