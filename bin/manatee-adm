@@ -511,6 +511,7 @@ ManateeAdm.prototype.do_zk_state = function (subcmd, opts, args, cb) {
         }
     });
 };
+ManateeAdm.prototype.do_zk_state.hiddenAliases = [ 'state' ];
 ManateeAdm.prototype.do_zk_state.options = [
     commonOptions.help,
     commonOptions.shard,
@@ -544,6 +545,7 @@ ManateeAdm.prototype.do_zk_active = function (subcmd, opts, args, cb) {
         }
     });
 };
+ManateeAdm.prototype.do_zk_active.hiddenAliases = [ 'active' ];
 ManateeAdm.prototype.do_zk_active.options = [
     commonOptions.help,
     commonOptions.shard,
