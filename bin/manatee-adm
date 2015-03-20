@@ -250,7 +250,7 @@ ManateeAdm.prototype.do_show = function (subcmd, opts, args, cb) {
     self.checkRequiredOption(subcmd, opts, 'zk', cb);
 
     if (args.length > 0) {
-        self.usage('unexpected arguments: ' + args.slice(2), subcmd, cb);
+        self.usage('unexpected arguments: ' + args, subcmd, cb);
     }
 
     if (opts.verbose) {
@@ -321,7 +321,7 @@ ManateeAdm.prototype.do_peers = function (subcmd, opts, args, cb) {
     self.checkRequiredOption(subcmd, opts, 'zk', cb);
 
     if (args.length > 0) {
-        self.usage('unexpected arguments: ' + args.slice(2), subcmd, cb);
+        self.usage('unexpected arguments: ' + args, subcmd, cb);
     }
 
     error = validateRole(opts);
@@ -436,7 +436,7 @@ ManateeAdm.prototype.do_pg_status.help = (
     'Show the postgres status of this cluster. \n' +
     '\n' +
     'Usage:\n' +
-    '    {{name}} pg-status [OPTIONS]\n' +
+    '    {{name}} pg-status [OPTIONS] [PERIOD [COUNT]]\n' +
     '\n' +
     '{{options}}'
 );
@@ -454,7 +454,7 @@ ManateeAdm.prototype.do_verify = function (subcmd, opts, args, cb) {
     self.checkRequiredOption(subcmd, opts, 'zk', cb);
 
     if (args.length > 0) {
-        self.usage('unexpected arguments: ' + args.slice(2), subcmd, cb);
+        self.usage('unexpected arguments: ' + args, subcmd, cb);
     }
 
     loadoptions = {

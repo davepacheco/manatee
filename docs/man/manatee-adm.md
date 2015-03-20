@@ -97,7 +97,7 @@ Supported columns include:
   "deposed")
 * `ip`: the peer's reported IP address
 
-### pg-status [-w | --wide] [-H | --omitHeader] [-o | --columns COLNAME[,...]] [-r | --role ROLE]
+### pg-status [-w | --wide] [-H | --omitHeader] [-o | --columns COLNAME[,...]] [-r | --role ROLE] [PERIOD [COUNT]]
 
 Show a table of Postgres status information for assigned peers in the cluster.
 This is very similar to "manatee-adm peers", but supports additional columns for
@@ -116,6 +116,9 @@ showing Postgres status.
 -w, --wide
     Use default columns except show full peernames instead of shortened
     peernames.  This output may exceed 80 columns.
+
+If `PERIOD` is specified, repeatedly fetches and displays status every `PERIOD`
+seconds.  If `COUNT` is also specified, exits after doing this `COUNT` times.
 
 Supported columns include all the columns supported by "manatee-adm peers",
 plus:
